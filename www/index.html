@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Visual Intrinsics — __m128i Explorer</title>
+  <title>Visual Intrinsics — SIMD Register Explorer</title>
   <style>
     :root {
       --bg:        #1a1b26;
@@ -18,15 +18,17 @@
       --purple:    #bb9af7;
       --cyan:      #7dcfff;
 
-      /* lane colours — 8 alternating pairs */
-      --lane0: #2d3a5c;
-      --lane1: #2d4a3e;
-      --lane0t: #7aa2f7;
-      --lane1t: #9ece6a;
+      /* lane colour palette — 8 alternating pairs */
+      --lane0: #2d3a5c; --lane0t: #7aa2f7;
+      --lane1: #2d4a3e; --lane1t: #9ece6a;
+      --lane2: #2b2415; --lane2t: #e0af68;
+      --lane3: #2b1e20; --lane3t: #f7768e;
+      --lane4: #221e2b; --lane4t: #bb9af7;
+      --lane5: #1a2428; --lane5t: #7dcfff;
+      --lane6: #2b2018; --lane6t: #ff9e64;
+      --lane7: #1a2626; --lane7t: #73daca;
     }
-
     * { box-sizing: border-box; margin: 0; padding: 0; }
-
     body {
       background: var(--bg);
       color: var(--text);
@@ -36,37 +38,63 @@
       display: flex;
       flex-direction: column;
     }
-
     header {
-      padding: 18px 24px 14px;
+      padding: 12px 20px;
       border-bottom: 1px solid var(--border);
       display: flex;
-      align-items: baseline;
-      gap: 16px;
+      align-items: center;
+      gap: 20px;
+      flex-wrap: wrap;
     }
-    header h1 { font-size: 18px; color: var(--accent); letter-spacing: 1px; }
-    header span { color: var(--muted); font-size: 11px; }
+    header h1 { font-size: 17px; color: var(--accent); letter-spacing: 1px; }
+    header .subtitle { color: var(--muted); font-size: 11px; }
+
+    /* ── Register-type selector ───────────────────────────────────────────── */
+    .regtype-sel {
+      display: flex;
+      gap: 4px;
+      margin-left: auto;
+    }
+    .regtype-sel button {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 4px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 11px;
+      transition: all 0.15s;
+    }
+    .regtype-sel button.active {
+      background: var(--accent);
+      color: var(--bg);
+      border-color: var(--accent);
+    }
+    .regtype-sel button:hover:not(.active) {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
 
     main {
       flex: 1;
       display: grid;
-      grid-template-columns: 1fr 220px 1fr;
+      grid-template-columns: 1fr 260px 1fr;
       grid-template-rows: auto auto;
-      gap: 0;
-      padding: 0;
+      overflow: hidden;
     }
 
-    /* ── Register panel ─────────────────────────────────────────────── */
+    /* ── Register panel ───────────────────────────────────────────────────── */
     .reg-panel {
-      padding: 16px;
+      padding: 14px;
       border-right: 1px solid var(--border);
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 9px;
+      overflow: hidden;
     }
-    .reg-panel:last-child { border-right: none; }
     .reg-panel h2 {
-      font-size: 14px;
+      font-size: 13px;
       color: var(--accent);
       display: flex;
       align-items: center;
@@ -79,14 +107,8 @@
       padding: 1px 6px;
       font-size: 10px;
       color: var(--muted);
-      letter-spacing: 0.5px;
     }
-
-    .hex-row {
-      display: flex;
-      gap: 6px;
-      align-items: center;
-    }
+    .hex-row { display: flex; gap: 6px; align-items: center; }
     .hex-row input {
       flex: 1;
       background: var(--surface);
@@ -95,24 +117,21 @@
       padding: 5px 8px;
       border-radius: 4px;
       font-family: inherit;
-      font-size: 12px;
+      font-size: 11px;
+      min-width: 0;
     }
     .hex-row input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
 
-    .view-tabs {
-      display: flex;
-      gap: 4px;
-      flex-wrap: wrap;
-    }
+    .view-tabs { display: flex; gap: 3px; flex-wrap: wrap; }
     .view-tabs button {
       background: var(--surface);
       border: 1px solid var(--border);
       color: var(--muted);
-      padding: 3px 10px;
+      padding: 2px 8px;
       border-radius: 4px;
       cursor: pointer;
       font-family: inherit;
-      font-size: 11px;
+      font-size: 10px;
       transition: all 0.15s;
     }
     .view-tabs button.active,
@@ -122,7 +141,7 @@
       border-color: var(--accent);
     }
 
-    /* ── Bit grid ───────────────────────────────────────────────────── */
+    /* ── Bit grid (32 cols, variable rows) ────────────────────────────────── */
     .bit-grid {
       display: grid;
       grid-template-columns: repeat(32, 1fr);
@@ -137,144 +156,165 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 9px;
+      font-size: 8px;
       user-select: none;
       cursor: default;
-      transition: background 0.1s;
+      transition: background 0.08s;
     }
     .bit.on  { background: var(--accent); color: var(--bg); }
     .bit.off { background: var(--surface); color: var(--muted); }
 
-    /* lane-colour overlays (applied via data-lane attribute) */
-    .bit[data-lane="0"].on  { background: var(--lane0t); }
-    .bit[data-lane="0"].off { background: #1e2535; }
-    .bit[data-lane="1"].on  { background: var(--lane1t); }
-    .bit[data-lane="1"].off { background: #1e2e28; }
-    .bit[data-lane="2"].on  { background: var(--yellow); }
-    .bit[data-lane="2"].off { background: #2b2415; }
-    .bit[data-lane="3"].on  { background: var(--red); }
-    .bit[data-lane="3"].off { background: #2b1e20; }
-    .bit[data-lane="4"].on  { background: var(--purple); }
-    .bit[data-lane="4"].off { background: #221e2b; }
-    .bit[data-lane="5"].on  { background: var(--cyan); }
-    .bit[data-lane="5"].off { background: #1a2428; }
-    .bit[data-lane="6"].on  { background: #ff9e64; }
-    .bit[data-lane="6"].off { background: #2b2018; }
-    .bit[data-lane="7"].on  { background: #73daca; }
-    .bit[data-lane="7"].off { background: #1a2626; }
+    .bit[data-lane="0"].on  { background: var(--lane0t); } .bit[data-lane="0"].off { background: var(--lane0); }
+    .bit[data-lane="1"].on  { background: var(--lane1t); } .bit[data-lane="1"].off { background: var(--lane1); }
+    .bit[data-lane="2"].on  { background: var(--lane2t); } .bit[data-lane="2"].off { background: var(--lane2); }
+    .bit[data-lane="3"].on  { background: var(--lane3t); } .bit[data-lane="3"].off { background: var(--lane3); }
+    .bit[data-lane="4"].on  { background: var(--lane4t); } .bit[data-lane="4"].off { background: var(--lane4); }
+    .bit[data-lane="5"].on  { background: var(--lane5t); } .bit[data-lane="5"].off { background: var(--lane5); }
+    .bit[data-lane="6"].on  { background: var(--lane6t); } .bit[data-lane="6"].off { background: var(--lane6); }
+    .bit[data-lane="7"].on  { background: var(--lane7t); } .bit[data-lane="7"].off { background: var(--lane7); }
 
-    /* ── Lane value table ───────────────────────────────────────────── */
+    /* ── Lane value table ─────────────────────────────────────────────────── */
     .lane-table {
       display: grid;
-      gap: 2px;
+      gap: 1px;
       font-size: 11px;
+      overflow-y: auto;
+      max-height: 260px;
     }
     .lane-row {
       display: grid;
-      grid-template-columns: 28px 1fr 70px;
-      gap: 6px;
+      grid-template-columns: 34px 1fr 80px;
+      gap: 5px;
       align-items: center;
       padding: 2px 4px;
-      border-radius: 3px;
+      border-radius: 2px;
     }
     .lane-row:nth-child(odd)  { background: #1e2030; }
     .lane-row:nth-child(even) { background: var(--surface); }
-    .lane-row .lane-idx  { color: var(--muted); text-align: right; font-size: 10px; }
-    .lane-row .lane-val  { color: var(--text); font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .lane-row .lane-hex  { color: var(--muted); text-align: right; font-size: 10px; }
+    .lane-idx  { color: var(--muted); text-align: right; font-size: 10px; }
+    .lane-val  { color: var(--text); font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lane-hex  { color: var(--muted); text-align: right; font-size: 10px; }
 
-    /* ── Operations panel ───────────────────────────────────────────── */
+    /* ── Operations panel ─────────────────────────────────────────────────── */
     .ops-panel {
-      padding: 16px 12px;
+      padding: 12px 10px;
       border-right: 1px solid var(--border);
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 10px;
+      overflow-y: auto;
     }
-    .ops-panel h2 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+    .ops-panel > h2 { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; flex-shrink: 0; }
 
-    .op-group { display: flex; flex-direction: column; gap: 6px; }
-    .op-group-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; padding-bottom: 2px; border-bottom: 1px solid var(--border); }
+    .op-group { display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; }
+    .op-group-label {
+      font-size: 10px; color: var(--muted); text-transform: uppercase;
+      letter-spacing: 0.5px; padding-bottom: 2px;
+      border-bottom: 1px solid var(--border);
+    }
 
     .op-btn {
       width: 100%;
       background: var(--surface);
       border: 1px solid var(--border);
       color: var(--text);
-      padding: 6px 10px;
+      padding: 4px 8px;
       border-radius: 4px;
       cursor: pointer;
       font-family: inherit;
-      font-size: 11px;
+      font-size: 10px;
       text-align: left;
-      transition: all 0.15s;
+      transition: all 0.12s;
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
+      white-space: nowrap;
+      overflow: hidden;
     }
     .op-btn:hover { background: var(--accent); color: var(--bg); border-color: var(--accent); }
-    .op-btn .op-sym { font-weight: bold; min-width: 14px; }
+    .op-sym { font-weight: bold; min-width: 10px; }
 
-    .shift-row {
-      display: flex;
+    /* two-column button grid */
+    .op-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+    .op-grid .op-btn { font-size: 10px; }
+
+    /* parameter inputs row */
+    .param-grid {
+      display: grid;
+      grid-template-columns: auto 1fr auto 1fr auto 1fr;
+      gap: 4px 6px;
       align-items: center;
-      gap: 6px;
-      font-size: 11px;
+      font-size: 10px;
+      color: var(--muted);
     }
-    .shift-row label { color: var(--muted); white-space: nowrap; }
-    .shift-row input {
-      width: 48px;
+    .param-grid input {
       background: var(--surface);
       border: 1px solid var(--border);
       color: var(--text);
-      padding: 4px 6px;
+      padding: 3px 5px;
       border-radius: 4px;
       font-family: inherit;
-      font-size: 11px;
+      font-size: 10px;
       text-align: center;
+      min-width: 0;
     }
 
-    /* ── Result panel ───────────────────────────────────────────────── */
+    /* ── Result panel ─────────────────────────────────────────────────────── */
     .result-panel {
-      padding: 16px;
+      grid-column: 1 / -1;
+      border-top: 1px solid var(--border);
       display: flex;
       flex-direction: column;
       gap: 10px;
+      padding: 14px;
     }
-    .result-panel h2 { font-size: 14px; color: var(--green); }
+    .result-top {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .result-top h2 { font-size: 13px; color: var(--green); }
+    .op-label {
+      font-size: 10px; color: var(--muted);
+      padding: 2px 8px;
+      background: var(--surface);
+      border-radius: 3px;
+      border: 1px solid var(--border);
+      font-family: inherit;
+      max-width: 380px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
     .result-hex {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 4px;
-      padding: 5px 10px;
-      font-size: 12px;
+      padding: 4px 10px;
+      font-size: 11px;
       color: var(--green);
       word-break: break-all;
+      flex: 1;
+      min-width: 0;
+    }
+    .result-body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
     }
 
-    .op-label {
-      font-size: 10px;
-      color: var(--muted);
-      padding: 2px 6px;
-      background: var(--surface);
-      border-radius: 3px;
-      border: 1px solid var(--border);
-      display: inline-block;
-    }
-
-    /* bottom bar */
     footer {
       border-top: 1px solid var(--border);
-      padding: 8px 24px;
+      padding: 6px 20px;
       color: var(--muted);
       font-size: 10px;
       display: flex;
-      gap: 24px;
+      gap: 20px;
     }
 
     @media (max-width: 900px) {
-      main { grid-template-columns: 1fr; grid-template-rows: auto; }
-      .reg-panel, .ops-panel, .result-panel { border-right: none; border-bottom: 1px solid var(--border); }
+      main { grid-template-columns: 1fr; }
+      .reg-panel, .ops-panel { border-right: none; border-bottom: 1px solid var(--border); }
+      .result-body { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -283,22 +323,30 @@
 
   <header>
     <h1>Visual Intrinsics</h1>
-    <span>__m128i · 128-bit SIMD register explorer</span>
+    <span class="subtitle">Intel SIMD Intrinsics Guide Explorer</span>
+    <div class="regtype-sel">
+      <button class="active" data-type="m128i">XMM · __m128i · 128-bit</button>
+      <button data-type="m256i">YMM · __m256i · 256-bit</button>
+      <button data-type="m512i">ZMM · __m512i · 512-bit</button>
+    </div>
   </header>
 
   <main>
-    <!-- Register A -->
+    <!-- ── Register A ──────────────────────────────────────────────────────── -->
     <div class="reg-panel" id="panel-a">
-      <h2>Register A <span class="tag">__m128i</span></h2>
+      <h2>Register A <span class="tag" id="tag-a">__m128i</span></h2>
       <div class="hex-row">
         <input id="hex-a" type="text" placeholder="0x00…00" spellcheck="false">
-        <button class="op-btn" id="btn-set-a" style="width:auto;padding:5px 10px">Set</button>
-        <button class="op-btn" id="btn-clear-a" style="width:auto;padding:5px 10px">✕</button>
+        <button class="op-btn" id="btn-set-a" style="width:auto;padding:4px 10px">Set</button>
+        <button class="op-btn" id="btn-clear-a" style="width:auto;padding:4px 8px">✕</button>
       </div>
       <div class="view-tabs" id="tabs-a">
         <button class="active" data-view="epi8">epi8</button>
+        <button data-view="epu8">epu8</button>
         <button data-view="epi16">epi16</button>
+        <button data-view="epu16">epu16</button>
         <button data-view="epi32">epi32</button>
+        <button data-view="epu32">epu32</button>
         <button data-view="epi64">epi64</button>
         <button data-view="bits">bits</button>
       </div>
@@ -306,61 +354,275 @@
       <div class="lane-table" id="lanes-a"></div>
     </div>
 
-    <!-- Operations -->
+    <!-- ── Operations ─────────────────────────────────────────────────────── -->
     <div class="ops-panel">
       <h2>Operations</h2>
 
+      <!-- Parameter inputs -->
+      <div class="op-group">
+        <div class="op-group-label">Parameters</div>
+        <div class="param-grid">
+          <label>bits</label>
+          <input id="shift-bits" type="number" value="1" min="0" max="511" title="Full-register shift count">
+          <label>count</label>
+          <input id="lane-count" type="number" value="1" min="0" max="63" title="Per-lane shift count">
+          <label>imm8</label>
+          <input id="imm8-val" type="number" value="0xe4" min="0" max="255" title="Immediate byte (0–255) for shuffle/align">
+        </div>
+      </div>
+
+      <!-- Bitwise -->
       <div class="op-group">
         <div class="op-group-label">Bitwise (A op B)</div>
-        <button class="op-btn" data-op="and"><span class="op-sym">&amp;</span> AND</button>
-        <button class="op-btn" data-op="or"><span class="op-sym">|</span> OR</button>
-        <button class="op-btn" data-op="xor"><span class="op-sym">^</span> XOR</button>
-      </div>
-
-      <div class="op-group">
-        <div class="op-group-label">Unary</div>
-        <button class="op-btn" data-op="not-a"><span class="op-sym">~</span> NOT A</button>
-        <button class="op-btn" data-op="not-b"><span class="op-sym">~</span> NOT B</button>
-      </div>
-
-      <div class="op-group">
-        <div class="op-group-label">Add (A + B)</div>
-        <button class="op-btn" data-op="add_epi8"><span class="op-sym">+</span>  epi8</button>
-        <button class="op-btn" data-op="add_epi16"><span class="op-sym">+</span>  epi16</button>
-        <button class="op-btn" data-op="add_epi32"><span class="op-sym">+</span>  epi32</button>
-      </div>
-
-      <div class="op-group">
-        <div class="op-group-label">Shift A</div>
-        <div class="shift-row">
-          <label>bits:</label>
-          <input id="shift-bits" type="number" value="1" min="0" max="127">
+        <div class="op-grid">
+          <button class="op-btn" data-op="and"><span class="op-sym">&amp;</span>AND</button>
+          <button class="op-btn" data-op="or"><span class="op-sym">|</span>OR</button>
+          <button class="op-btn" data-op="xor"><span class="op-sym">^</span>XOR</button>
+          <button class="op-btn" data-op="andnot"><span class="op-sym">~&amp;</span>ANDNOT</button>
+          <button class="op-btn" data-op="not-a"><span class="op-sym">~</span>NOT A</button>
+          <button class="op-btn" data-op="not-b"><span class="op-sym">~</span>NOT B</button>
         </div>
-        <button class="op-btn" data-op="shl"><span class="op-sym">«</span> SHL A</button>
-        <button class="op-btn" data-op="shr"><span class="op-sym">»</span> SHR A</button>
       </div>
 
+      <!-- Add -->
+      <div class="op-group">
+        <div class="op-group-label">Add (A+B, wrapping)</div>
+        <div class="op-grid">
+          <button class="op-btn" data-op="add_epi8">add_epi8</button>
+          <button class="op-btn" data-op="add_epi16">add_epi16</button>
+          <button class="op-btn" data-op="add_epi32">add_epi32</button>
+          <button class="op-btn" data-op="add_epi64">add_epi64</button>
+        </div>
+      </div>
+
+      <!-- Sub -->
+      <div class="op-group">
+        <div class="op-group-label">Sub (A−B, wrapping)</div>
+        <div class="op-grid">
+          <button class="op-btn" data-op="sub_epi8">sub_epi8</button>
+          <button class="op-btn" data-op="sub_epi16">sub_epi16</button>
+          <button class="op-btn" data-op="sub_epi32">sub_epi32</button>
+          <button class="op-btn" data-op="sub_epi64">sub_epi64</button>
+        </div>
+      </div>
+
+      <!-- Saturating add -->
+      <div class="op-group">
+        <div class="op-group-label">Saturating Add (A+B)</div>
+        <div class="op-grid">
+          <button class="op-btn" data-op="adds_epi8">adds_epi8</button>
+          <button class="op-btn" data-op="adds_epi16">adds_epi16</button>
+          <button class="op-btn" data-op="adds_epu8">adds_epu8</button>
+          <button class="op-btn" data-op="adds_epu16">adds_epu16</button>
+        </div>
+      </div>
+
+      <!-- Saturating sub -->
+      <div class="op-group">
+        <div class="op-group-label">Saturating Sub (A−B)</div>
+        <div class="op-grid">
+          <button class="op-btn" data-op="subs_epi8">subs_epi8</button>
+          <button class="op-btn" data-op="subs_epi16">subs_epi16</button>
+          <button class="op-btn" data-op="subs_epu8">subs_epu8</button>
+          <button class="op-btn" data-op="subs_epu16">subs_epu16</button>
+        </div>
+      </div>
+
+      <!-- Multiply -->
+      <div class="op-group">
+        <div class="op-group-label">Multiply (A×B)</div>
+        <div class="op-grid">
+          <button class="op-btn" data-op="mullo_epi16">mullo_epi16</button>
+          <button class="op-btn" data-op="mulhi_epi16">mulhi_epi16</button>
+          <button class="op-btn" data-op="mullo_epi32">mullo_epi32</button>
+        </div>
+      </div>
+
+      <!-- Absolute value -->
+      <div class="op-group">
+        <div class="op-group-label">Absolute Value (|A|)</div>
+        <div class="op-grid">
+          <button class="op-btn" data-op="abs_epi8">abs_epi8</button>
+          <button class="op-btn" data-op="abs_epi16">abs_epi16</button>
+          <button class="op-btn" data-op="abs_epi32">abs_epi32</button>
+        </div>
+      </div>
+
+      <!-- Max signed -->
+      <div class="op-group">
+        <div class="op-group-label">Max signed (A,B)</div>
+        <div class="op-grid">
+          <button class="op-btn" data-op="max_epi8">max_epi8</button>
+          <button class="op-btn" data-op="max_epi16">max_epi16</button>
+          <button class="op-btn" data-op="max_epi32">max_epi32</button>
+        </div>
+      </div>
+
+      <!-- Min signed -->
+      <div class="op-group">
+        <div class="op-group-label">Min signed (A,B)</div>
+        <div class="op-grid">
+          <button class="op-btn" data-op="min_epi8">min_epi8</button>
+          <button class="op-btn" data-op="min_epi16">min_epi16</button>
+          <button class="op-btn" data-op="min_epi32">min_epi32</button>
+        </div>
+      </div>
+
+      <!-- Max unsigned -->
+      <div class="op-group">
+        <div class="op-group-label">Max unsigned (A,B)</div>
+        <div class="op-grid">
+          <button class="op-btn" data-op="max_epu8">max_epu8</button>
+          <button class="op-btn" data-op="max_epu16">max_epu16</button>
+          <button class="op-btn" data-op="max_epu32">max_epu32</button>
+        </div>
+      </div>
+
+      <!-- Min unsigned -->
+      <div class="op-group">
+        <div class="op-group-label">Min unsigned (A,B)</div>
+        <div class="op-grid">
+          <button class="op-btn" data-op="min_epu8">min_epu8</button>
+          <button class="op-btn" data-op="min_epu16">min_epu16</button>
+          <button class="op-btn" data-op="min_epu32">min_epu32</button>
+        </div>
+      </div>
+
+      <!-- Compare eq -->
+      <div class="op-group">
+        <div class="op-group-label">Compare EQ (A==B → 0xFF/0x00)</div>
+        <div class="op-grid">
+          <button class="op-btn" data-op="cmpeq_epi8">cmpeq_epi8</button>
+          <button class="op-btn" data-op="cmpeq_epi16">cmpeq_epi16</button>
+          <button class="op-btn" data-op="cmpeq_epi32">cmpeq_epi32</button>
+          <button class="op-btn" data-op="cmpeq_epi64">cmpeq_epi64</button>
+        </div>
+      </div>
+
+      <!-- Compare gt -->
+      <div class="op-group">
+        <div class="op-group-label">Compare GT signed (A&gt;B → 0xFF/0x00)</div>
+        <div class="op-grid">
+          <button class="op-btn" data-op="cmpgt_epi8">cmpgt_epi8</button>
+          <button class="op-btn" data-op="cmpgt_epi16">cmpgt_epi16</button>
+          <button class="op-btn" data-op="cmpgt_epi32">cmpgt_epi32</button>
+          <button class="op-btn" data-op="cmpgt_epi64">cmpgt_epi64</button>
+        </div>
+      </div>
+
+      <!-- Horizontal -->
+      <div class="op-group">
+        <div class="op-group-label">Horizontal (A,B in-lane)</div>
+        <div class="op-grid">
+          <button class="op-btn" data-op="hadd_epi16">hadd_epi16</button>
+          <button class="op-btn" data-op="hadd_epi32">hadd_epi32</button>
+          <button class="op-btn" data-op="hsub_epi16">hsub_epi16</button>
+          <button class="op-btn" data-op="hsub_epi32">hsub_epi32</button>
+        </div>
+      </div>
+
+      <!-- Per-lane logical shift -->
+      <div class="op-group">
+        <div class="op-group-label">Per-lane Shift A by <em>count</em></div>
+        <div class="op-grid">
+          <button class="op-btn" data-op="slli_epi16">slli_epi16</button>
+          <button class="op-btn" data-op="srli_epi16">srli_epi16</button>
+          <button class="op-btn" data-op="slli_epi32">slli_epi32</button>
+          <button class="op-btn" data-op="srli_epi32">srli_epi32</button>
+          <button class="op-btn" data-op="slli_epi64">slli_epi64</button>
+          <button class="op-btn" data-op="srli_epi64">srli_epi64</button>
+          <button class="op-btn" data-op="srai_epi16">srai_epi16</button>
+          <button class="op-btn" data-op="srai_epi32">srai_epi32</button>
+        </div>
+      </div>
+
+      <!-- Full-register shift -->
+      <div class="op-group">
+        <div class="op-group-label">Full-register Shift A by <em>bits</em></div>
+        <div class="op-grid">
+          <button class="op-btn" data-op="shl"><span class="op-sym">«</span>SHL A</button>
+          <button class="op-btn" data-op="shr"><span class="op-sym">»</span>SHR A</button>
+        </div>
+      </div>
+
+      <!-- Unpack low -->
+      <div class="op-group">
+        <div class="op-group-label">Unpack Low (A lo, B lo, in-lane)</div>
+        <div class="op-grid">
+          <button class="op-btn" data-op="unpacklo_epi8">lo_epi8</button>
+          <button class="op-btn" data-op="unpacklo_epi16">lo_epi16</button>
+          <button class="op-btn" data-op="unpacklo_epi32">lo_epi32</button>
+          <button class="op-btn" data-op="unpacklo_epi64">lo_epi64</button>
+        </div>
+      </div>
+
+      <!-- Unpack high -->
+      <div class="op-group">
+        <div class="op-group-label">Unpack High (A hi, B hi, in-lane)</div>
+        <div class="op-grid">
+          <button class="op-btn" data-op="unpackhi_epi8">hi_epi8</button>
+          <button class="op-btn" data-op="unpackhi_epi16">hi_epi16</button>
+          <button class="op-btn" data-op="unpackhi_epi32">hi_epi32</button>
+          <button class="op-btn" data-op="unpackhi_epi64">hi_epi64</button>
+        </div>
+      </div>
+
+      <!-- Pack -->
+      <div class="op-group">
+        <div class="op-group-label">Pack (A+B saturate, in-lane)</div>
+        <div class="op-grid">
+          <button class="op-btn" data-op="packs_epi16">packs i16→i8</button>
+          <button class="op-btn" data-op="packs_epi32">packs i32→i16</button>
+          <button class="op-btn" data-op="packus_epi16">packus i16→u8</button>
+          <button class="op-btn" data-op="packus_epi32">packus i32→u16</button>
+        </div>
+      </div>
+
+      <!-- Shuffle -->
+      <div class="op-group">
+        <div class="op-group-label">Shuffle (in-lane, uses <em>imm8</em> / B)</div>
+        <div class="op-grid">
+          <button class="op-btn" data-op="shuffle_epi32">shuffle_epi32(A,imm8)</button>
+          <button class="op-btn" data-op="shuffle_epi8">pshufb(A, B)</button>
+        </div>
+      </div>
+
+      <!-- Align & Blend -->
+      <div class="op-group">
+        <div class="op-group-label">Align / Blend (uses <em>imm8</em> / B)</div>
+        <div class="op-grid">
+          <button class="op-btn" data-op="alignr_epi8">alignr(A,B,imm8)</button>
+          <button class="op-btn" data-op="blendv_epi8">blendv(A,B,B)</button>
+        </div>
+      </div>
+
+      <!-- Copy -->
       <div class="op-group">
         <div class="op-group-label">Copy</div>
-        <button class="op-btn" data-op="a-to-b">A → B</button>
-        <button class="op-btn" data-op="b-to-a">B → A</button>
-        <button class="op-btn" data-op="result-to-a">Result → A</button>
-        <button class="op-btn" data-op="result-to-b">Result → B</button>
+        <div class="op-grid">
+          <button class="op-btn" data-op="a-to-b">A → B</button>
+          <button class="op-btn" data-op="b-to-a">B → A</button>
+          <button class="op-btn" data-op="result-to-a">Result → A</button>
+          <button class="op-btn" data-op="result-to-b">Result → B</button>
+        </div>
       </div>
-    </div>
+    </div><!-- /ops-panel -->
 
-    <!-- Register B -->
+    <!-- ── Register B ──────────────────────────────────────────────────────── -->
     <div class="reg-panel" id="panel-b">
-      <h2>Register B <span class="tag">__m128i</span></h2>
+      <h2>Register B <span class="tag" id="tag-b">__m128i</span></h2>
       <div class="hex-row">
         <input id="hex-b" type="text" placeholder="0x00…00" spellcheck="false">
-        <button class="op-btn" id="btn-set-b" style="width:auto;padding:5px 10px">Set</button>
-        <button class="op-btn" id="btn-clear-b" style="width:auto;padding:5px 10px">✕</button>
+        <button class="op-btn" id="btn-set-b" style="width:auto;padding:4px 10px">Set</button>
+        <button class="op-btn" id="btn-clear-b" style="width:auto;padding:4px 8px">✕</button>
       </div>
       <div class="view-tabs" id="tabs-b">
         <button class="active" data-view="epi8">epi8</button>
+        <button data-view="epu8">epu8</button>
         <button data-view="epi16">epi16</button>
+        <button data-view="epu16">epu16</button>
         <button data-view="epi32">epi32</button>
+        <button data-view="epu32">epu32</button>
         <button data-view="epi64">epi64</button>
         <button data-view="bits">bits</button>
       </div>
@@ -368,21 +630,24 @@
       <div class="lane-table" id="lanes-b"></div>
     </div>
 
-    <!-- Result -->
-    <div class="result-panel" style="grid-column: 1 / -1; border-top: 1px solid var(--border); display:flex; flex-direction:column; gap:10px; padding:16px;">
-      <div style="display:flex; align-items:center; gap:12px;">
-        <h2 style="font-size:14px;color:var(--green);">Result</h2>
+    <!-- ── Result ──────────────────────────────────────────────────────────── -->
+    <div class="result-panel">
+      <div class="result-top">
+        <h2>Result</h2>
         <span class="op-label" id="result-op-label">—</span>
-        <div class="result-hex" id="result-hex" style="flex:1;">0x00000000000000000000000000000000</div>
+        <div class="result-hex" id="result-hex">0x00…00</div>
         <div class="view-tabs" id="tabs-r">
           <button class="active" data-view="epi8">epi8</button>
+          <button data-view="epu8">epu8</button>
           <button data-view="epi16">epi16</button>
+          <button data-view="epu16">epu16</button>
           <button data-view="epi32">epi32</button>
+          <button data-view="epu32">epu32</button>
           <button data-view="epi64">epi64</button>
           <button data-view="bits">bits</button>
         </div>
       </div>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+      <div class="result-body">
         <div class="bit-grid" id="grid-r"></div>
         <div class="lane-table" id="lanes-r"></div>
       </div>
@@ -390,8 +655,8 @@
   </main>
 
   <footer>
-    <span>Bits are displayed MSB→LSB left-to-right. Lane index 0 = least-significant.</span>
-    <span>Arithmetic uses wrapping (modular) overflow.</span>
+    <span>Bits displayed MSB→LSB left-to-right. Lane index 0 = least-significant.</span>
+    <span>For 256/512-bit: hadd, hsub, unpack, pack, shuffle_epi8, shuffle_epi32, alignr operate independently on each 128-bit lane (in-lane semantics).</span>
   </footer>
 
   <script src="./bootstrap.js"></script>
