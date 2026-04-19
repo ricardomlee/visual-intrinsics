@@ -1,27 +1,400 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <title>Visual Intrinsics</title>
-    <style>
-  body {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-  }
-</style>
-  </head>
-  <body>
-    <noscript>This page contains webassembly and javascript content, please enable javascript in your browser.</noscript>
-    <pre id="vi-canvas"></pre>
-    <button id="myBtn" onclick="myClick()">Add One</button>
-    <button id="minusBtn" onclick="minusClick()">Minus One</button>
-    <script src="./bootstrap.js"></script>
-  </body>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Visual Intrinsics — __m128i Explorer</title>
+  <style>
+    :root {
+      --bg:        #1a1b26;
+      --surface:   #24283b;
+      --border:    #3b4261;
+      --text:      #c0caf5;
+      --muted:     #565f89;
+      --accent:    #7aa2f7;
+      --green:     #9ece6a;
+      --red:       #f7768e;
+      --yellow:    #e0af68;
+      --purple:    #bb9af7;
+      --cyan:      #7dcfff;
+
+      /* lane colours — 8 alternating pairs */
+      --lane0: #2d3a5c;
+      --lane1: #2d4a3e;
+      --lane0t: #7aa2f7;
+      --lane1t: #9ece6a;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Menlo', 'Consolas', 'Courier New', monospace;
+      font-size: 13px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 18px 24px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+    }
+    header h1 { font-size: 18px; color: var(--accent); letter-spacing: 1px; }
+    header span { color: var(--muted); font-size: 11px; }
+
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 220px 1fr;
+      grid-template-rows: auto auto;
+      gap: 0;
+      padding: 0;
+    }
+
+    /* ── Register panel ─────────────────────────────────────────────── */
+    .reg-panel {
+      padding: 16px;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .reg-panel:last-child { border-right: none; }
+    .reg-panel h2 {
+      font-size: 14px;
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .reg-panel h2 .tag {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.5px;
+    }
+
+    .hex-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .hex-row input {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 5px 8px;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 12px;
+    }
+    .hex-row input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+
+    .view-tabs {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+    .view-tabs button {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 3px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 11px;
+      transition: all 0.15s;
+    }
+    .view-tabs button.active,
+    .view-tabs button:hover {
+      background: var(--accent);
+      color: var(--bg);
+      border-color: var(--accent);
+    }
+
+    /* ── Bit grid ───────────────────────────────────────────────────── */
+    .bit-grid {
+      display: grid;
+      grid-template-columns: repeat(32, 1fr);
+      gap: 1px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .bit {
+      aspect-ratio: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      user-select: none;
+      cursor: default;
+      transition: background 0.1s;
+    }
+    .bit.on  { background: var(--accent); color: var(--bg); }
+    .bit.off { background: var(--surface); color: var(--muted); }
+
+    /* lane-colour overlays (applied via data-lane attribute) */
+    .bit[data-lane="0"].on  { background: var(--lane0t); }
+    .bit[data-lane="0"].off { background: #1e2535; }
+    .bit[data-lane="1"].on  { background: var(--lane1t); }
+    .bit[data-lane="1"].off { background: #1e2e28; }
+    .bit[data-lane="2"].on  { background: var(--yellow); }
+    .bit[data-lane="2"].off { background: #2b2415; }
+    .bit[data-lane="3"].on  { background: var(--red); }
+    .bit[data-lane="3"].off { background: #2b1e20; }
+    .bit[data-lane="4"].on  { background: var(--purple); }
+    .bit[data-lane="4"].off { background: #221e2b; }
+    .bit[data-lane="5"].on  { background: var(--cyan); }
+    .bit[data-lane="5"].off { background: #1a2428; }
+    .bit[data-lane="6"].on  { background: #ff9e64; }
+    .bit[data-lane="6"].off { background: #2b2018; }
+    .bit[data-lane="7"].on  { background: #73daca; }
+    .bit[data-lane="7"].off { background: #1a2626; }
+
+    /* ── Lane value table ───────────────────────────────────────────── */
+    .lane-table {
+      display: grid;
+      gap: 2px;
+      font-size: 11px;
+    }
+    .lane-row {
+      display: grid;
+      grid-template-columns: 28px 1fr 70px;
+      gap: 6px;
+      align-items: center;
+      padding: 2px 4px;
+      border-radius: 3px;
+    }
+    .lane-row:nth-child(odd)  { background: #1e2030; }
+    .lane-row:nth-child(even) { background: var(--surface); }
+    .lane-row .lane-idx  { color: var(--muted); text-align: right; font-size: 10px; }
+    .lane-row .lane-val  { color: var(--text); font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lane-row .lane-hex  { color: var(--muted); text-align: right; font-size: 10px; }
+
+    /* ── Operations panel ───────────────────────────────────────────── */
+    .ops-panel {
+      padding: 16px 12px;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .ops-panel h2 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+
+    .op-group { display: flex; flex-direction: column; gap: 6px; }
+    .op-group-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; padding-bottom: 2px; border-bottom: 1px solid var(--border); }
+
+    .op-btn {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 11px;
+      text-align: left;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .op-btn:hover { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+    .op-btn .op-sym { font-weight: bold; min-width: 14px; }
+
+    .shift-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+    }
+    .shift-row label { color: var(--muted); white-space: nowrap; }
+    .shift-row input {
+      width: 48px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 4px 6px;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 11px;
+      text-align: center;
+    }
+
+    /* ── Result panel ───────────────────────────────────────────────── */
+    .result-panel {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .result-panel h2 { font-size: 14px; color: var(--green); }
+    .result-hex {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 5px 10px;
+      font-size: 12px;
+      color: var(--green);
+      word-break: break-all;
+    }
+
+    .op-label {
+      font-size: 10px;
+      color: var(--muted);
+      padding: 2px 6px;
+      background: var(--surface);
+      border-radius: 3px;
+      border: 1px solid var(--border);
+      display: inline-block;
+    }
+
+    /* bottom bar */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 8px 24px;
+      color: var(--muted);
+      font-size: 10px;
+      display: flex;
+      gap: 24px;
+    }
+
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; grid-template-rows: auto; }
+      .reg-panel, .ops-panel, .result-panel { border-right: none; border-bottom: 1px solid var(--border); }
+    }
+  </style>
+</head>
+<body>
+  <noscript>This page requires JavaScript and WebAssembly.</noscript>
+
+  <header>
+    <h1>Visual Intrinsics</h1>
+    <span>__m128i · 128-bit SIMD register explorer</span>
+  </header>
+
+  <main>
+    <!-- Register A -->
+    <div class="reg-panel" id="panel-a">
+      <h2>Register A <span class="tag">__m128i</span></h2>
+      <div class="hex-row">
+        <input id="hex-a" type="text" placeholder="0x00…00" spellcheck="false">
+        <button class="op-btn" id="btn-set-a" style="width:auto;padding:5px 10px">Set</button>
+        <button class="op-btn" id="btn-clear-a" style="width:auto;padding:5px 10px">✕</button>
+      </div>
+      <div class="view-tabs" id="tabs-a">
+        <button class="active" data-view="epi8">epi8</button>
+        <button data-view="epi16">epi16</button>
+        <button data-view="epi32">epi32</button>
+        <button data-view="epi64">epi64</button>
+        <button data-view="bits">bits</button>
+      </div>
+      <div class="bit-grid" id="grid-a"></div>
+      <div class="lane-table" id="lanes-a"></div>
+    </div>
+
+    <!-- Operations -->
+    <div class="ops-panel">
+      <h2>Operations</h2>
+
+      <div class="op-group">
+        <div class="op-group-label">Bitwise (A op B)</div>
+        <button class="op-btn" data-op="and"><span class="op-sym">&amp;</span> AND</button>
+        <button class="op-btn" data-op="or"><span class="op-sym">|</span> OR</button>
+        <button class="op-btn" data-op="xor"><span class="op-sym">^</span> XOR</button>
+      </div>
+
+      <div class="op-group">
+        <div class="op-group-label">Unary</div>
+        <button class="op-btn" data-op="not-a"><span class="op-sym">~</span> NOT A</button>
+        <button class="op-btn" data-op="not-b"><span class="op-sym">~</span> NOT B</button>
+      </div>
+
+      <div class="op-group">
+        <div class="op-group-label">Add (A + B)</div>
+        <button class="op-btn" data-op="add_epi8"><span class="op-sym">+</span>  epi8</button>
+        <button class="op-btn" data-op="add_epi16"><span class="op-sym">+</span>  epi16</button>
+        <button class="op-btn" data-op="add_epi32"><span class="op-sym">+</span>  epi32</button>
+      </div>
+
+      <div class="op-group">
+        <div class="op-group-label">Shift A</div>
+        <div class="shift-row">
+          <label>bits:</label>
+          <input id="shift-bits" type="number" value="1" min="0" max="127">
+        </div>
+        <button class="op-btn" data-op="shl"><span class="op-sym">«</span> SHL A</button>
+        <button class="op-btn" data-op="shr"><span class="op-sym">»</span> SHR A</button>
+      </div>
+
+      <div class="op-group">
+        <div class="op-group-label">Copy</div>
+        <button class="op-btn" data-op="a-to-b">A → B</button>
+        <button class="op-btn" data-op="b-to-a">B → A</button>
+        <button class="op-btn" data-op="result-to-a">Result → A</button>
+        <button class="op-btn" data-op="result-to-b">Result → B</button>
+      </div>
+    </div>
+
+    <!-- Register B -->
+    <div class="reg-panel" id="panel-b">
+      <h2>Register B <span class="tag">__m128i</span></h2>
+      <div class="hex-row">
+        <input id="hex-b" type="text" placeholder="0x00…00" spellcheck="false">
+        <button class="op-btn" id="btn-set-b" style="width:auto;padding:5px 10px">Set</button>
+        <button class="op-btn" id="btn-clear-b" style="width:auto;padding:5px 10px">✕</button>
+      </div>
+      <div class="view-tabs" id="tabs-b">
+        <button class="active" data-view="epi8">epi8</button>
+        <button data-view="epi16">epi16</button>
+        <button data-view="epi32">epi32</button>
+        <button data-view="epi64">epi64</button>
+        <button data-view="bits">bits</button>
+      </div>
+      <div class="bit-grid" id="grid-b"></div>
+      <div class="lane-table" id="lanes-b"></div>
+    </div>
+
+    <!-- Result -->
+    <div class="result-panel" style="grid-column: 1 / -1; border-top: 1px solid var(--border); display:flex; flex-direction:column; gap:10px; padding:16px;">
+      <div style="display:flex; align-items:center; gap:12px;">
+        <h2 style="font-size:14px;color:var(--green);">Result</h2>
+        <span class="op-label" id="result-op-label">—</span>
+        <div class="result-hex" id="result-hex" style="flex:1;">0x00000000000000000000000000000000</div>
+        <div class="view-tabs" id="tabs-r">
+          <button class="active" data-view="epi8">epi8</button>
+          <button data-view="epi16">epi16</button>
+          <button data-view="epi32">epi32</button>
+          <button data-view="epi64">epi64</button>
+          <button data-view="bits">bits</button>
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+        <div class="bit-grid" id="grid-r"></div>
+        <div class="lane-table" id="lanes-r"></div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <span>Bits are displayed MSB→LSB left-to-right. Lane index 0 = least-significant.</span>
+    <span>Arithmetic uses wrapping (modular) overflow.</span>
+  </footer>
+
+  <script src="./bootstrap.js"></script>
+</body>
 </html>
+
