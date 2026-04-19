@@ -1,105 +1,120 @@
-import { M128i } from "visual-intrinsics";
+import { M128i, M256i, M512i } from "visual-intrinsics";
 
-// ── State ────────────────────────────────────────────────────────────────────
-let regA = M128i.new();
-let regB = M128i.new();
-let regR = M128i.new();
+// ── Register-type state ───────────────────────────────────────────────────────
+let regType = "m128i";  // "m128i" | "m256i" | "m512i"
+
+const REG_CLASS = { m128i: M128i, m256i: M256i, m512i: M512i };
+const REG_BITS  = { m128i: 128,   m256i: 256,   m512i: 512   };
+const REG_TAG   = { m128i: "__m128i", m256i: "__m256i", m512i: "__m512i" };
+
+const DEMO_HEX = {
+  m128i: {
+    a: "0x00ff00ff0f0f0f0faaaaaaaa12345678",
+    b: "0xff00ff00f0f0f0f05555555587654321",
+  },
+  m256i: {
+    a: "0x00ff00ff0f0f0f0faaaaaaaa1234567800ff00ff0f0f0f0faaaaaaaa12345678",
+    b: "0xff00ff00f0f0f0f05555555587654321ff00ff00f0f0f0f05555555587654321",
+  },
+  m512i: {
+    a: "0x00ff00ff0f0f0f0faaaaaaaa1234567800ff00ff0f0f0f0faaaaaaaa1234567800ff00ff0f0f0f0faaaaaaaa1234567800ff00ff0f0f0f0faaaaaaaa12345678",
+    b: "0xff00ff00f0f0f0f05555555587654321ff00ff00f0f0f0f05555555587654321ff00ff00f0f0f0f05555555587654321ff00ff00f0f0f0f05555555587654321",
+  },
+};
+
+let regA, regB, regR;
 let lastOp = "—";
 
 const views = { a: "epi8", b: "epi8", r: "epi8" };
 
-// ── Lane count per view ───────────────────────────────────────────────────────
-const LANE_COUNTS = { epi8: 16, epi16: 8, epi32: 4, epi64: 2, bits: 1 };
-const BITS_PER_LANE = { epi8: 8, epi16: 16, epi32: 32, epi64: 64, bits: 128 };
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function newReg() { return REG_CLASS[regType].new(); }
 
-// ── Build the 32-wide bit grid (4 rows × 32 cols = 128 bits) ─────────────────
+function bitsPerLane(view) {
+  return { epi8: 8, epu8: 8, epi16: 16, epu16: 16,
+           epi32: 32, epu32: 32, epi64: 64 }[view] ?? REG_BITS[regType];
+}
+
+// ── Build bit grid ────────────────────────────────────────────────────────────
 function buildGrid(id) {
-  const container = document.getElementById(id);
-  container.innerHTML = "";
-  for (let i = 0; i < 128; i++) {
-    const div = document.createElement("div");
-    div.className = "bit off";
-    div.dataset.idx = i; // bit index, 0 = MSB
-    container.appendChild(div);
+  const el = document.getElementById(id);
+  el.innerHTML = "";
+  const total = REG_BITS[regType];
+  for (let i = 0; i < total; i++) {
+    const d = document.createElement("div");
+    d.className = "bit off";
+    d.dataset.idx = i;
+    el.appendChild(d);
   }
 }
 
-// ── Render a register into its grid and lane table ────────────────────────────
+// ── Render one register ───────────────────────────────────────────────────────
 function renderReg(key, reg) {
-  const gridId  = "grid-" + key;
-  const lanesId = "lanes-" + key;
-  const view    = views[key];
+  const view     = views[key];
+  const bits     = reg.get_bits();
+  const totalBits = REG_BITS[regType];
+  const bpl      = bitsPerLane(view);
 
-  const bits = reg.get_bits(); // 128-char string, idx 0 = MSB
-  const laneCount = LANE_COUNTS[view];
-  const bitsPerLane = BITS_PER_LANE[view];
-
-  // ── bit grid ─────────────────────────────────────────────────────────────
-  const cells = document.getElementById(gridId).children;
-  for (let i = 0; i < 128; i++) {
+  // bit grid
+  const cells = document.getElementById("grid-" + key).children;
+  for (let i = 0; i < totalBits; i++) {
     const cell = cells[i];
-    const on = bits[i] === "1";
-    cell.className = "bit " + (on ? "on" : "off");
-
+    cell.className = "bit " + (bits[i] === "1" ? "on" : "off");
     if (view === "bits") {
       cell.removeAttribute("data-lane");
     } else {
-      // which lane does bit index i belong to?  i=0 is MSB of MSB lane
-      const laneFromMsb = Math.floor(i / bitsPerLane);
-      cell.dataset.lane = laneFromMsb % 8;
+      cell.dataset.lane = Math.floor(i / bpl) % 8;
     }
   }
 
-  // ── lane table ────────────────────────────────────────────────────────────
-  const table = document.getElementById(lanesId);
+  // lane value table
+  const table = document.getElementById("lanes-" + key);
   table.innerHTML = "";
 
-  let vals, hexBytes;
-  if (view === "epi8")  vals = JSON.parse(reg.get_epi8());
-  else if (view === "epi16") vals = JSON.parse(reg.get_epi16());
-  else if (view === "epi32") vals = JSON.parse(reg.get_epi32());
-  else if (view === "epi64") vals = JSON.parse(reg.get_epi64()).map(String);
-  else { // bits
-    vals = [reg.to_hex()];
+  let vals;
+  switch (view) {
+    case "epi8":  vals = JSON.parse(reg.get_epi8());  break;
+    case "epu8":  vals = JSON.parse(reg.get_epu8());  break;
+    case "epi16": vals = JSON.parse(reg.get_epi16()); break;
+    case "epu16": vals = JSON.parse(reg.get_epu16()); break;
+    case "epi32": vals = JSON.parse(reg.get_epi32()); break;
+    case "epu32": vals = JSON.parse(reg.get_epu32()); break;
+    case "epi64": vals = JSON.parse(reg.get_epi64()).map(String); break;
+    default:      vals = [reg.to_hex()]; break;
   }
 
-  // Values come from Rust index 0 = least-significant lane.
-  // Display in MSB-first order to match the bit grid.
-  const laneCountAct = vals.length;
-  for (let li = laneCountAct - 1; li >= 0; li--) {
-    const row = document.createElement("div");
+  const nibblesPerLane = bpl / 4;
+  for (let li = vals.length - 1; li >= 0; li--) {
+    const row    = document.createElement("div");
     row.className = "lane-row";
 
-    const idxSpan = document.createElement("span");
-    idxSpan.className = "lane-idx";
-    idxSpan.textContent = "[" + li + "]";
+    const idxEl = document.createElement("span");
+    idxEl.className = "lane-idx";
+    idxEl.textContent = "[" + li + "]";
 
-    const valSpan = document.createElement("span");
-    valSpan.className = "lane-val";
-    valSpan.textContent = vals[li];
+    const valEl = document.createElement("span");
+    valEl.className = "lane-val";
+    valEl.textContent = vals[li];
 
-    const hexSpan = document.createElement("span");
-    hexSpan.className = "lane-hex";
+    const hexEl = document.createElement("span");
+    hexEl.className = "lane-hex";
     if (view !== "bits") {
-      const nibblesPerLane = bitsPerLane / 4;
       let v = BigInt(vals[li]);
-      if (v < 0n) v += (1n << BigInt(bitsPerLane));
-      hexSpan.textContent = "0x" + v.toString(16).toUpperCase().padStart(nibblesPerLane, "0");
+      if (v < 0n) v += (1n << BigInt(bpl));
+      hexEl.textContent = "0x" + v.toString(16).toUpperCase().padStart(nibblesPerLane, "0");
     }
 
-    row.appendChild(idxSpan);
-    row.appendChild(valSpan);
-    row.appendChild(hexSpan);
+    row.appendChild(idxEl);
+    row.appendChild(valEl);
+    row.appendChild(hexEl);
     table.appendChild(row);
   }
 
-  // update hex input if it's A or B
   if (key === "a") document.getElementById("hex-a").value = reg.to_hex();
   if (key === "b") document.getElementById("hex-b").value = reg.to_hex();
   if (key === "r") document.getElementById("result-hex").textContent = reg.to_hex();
 }
 
-// ── Render all three registers ────────────────────────────────────────────────
 function renderAll() {
   renderReg("a", regA);
   renderReg("b", regB);
@@ -107,25 +122,43 @@ function renderAll() {
   document.getElementById("result-op-label").textContent = lastOp;
 }
 
-// ── View tab switching ────────────────────────────────────────────────────────
+// ── Register-type switching ───────────────────────────────────────────────────
+function switchRegType(type) {
+  regType = type;
+  const tag = REG_TAG[type];
+  document.getElementById("tag-a").textContent = tag;
+  document.getElementById("tag-b").textContent = tag;
+
+  buildGrid("grid-a");
+  buildGrid("grid-b");
+  buildGrid("grid-r");
+
+  const Cls = REG_CLASS[type];
+  const demo = DEMO_HEX[type];
+  regA = Cls.from_hex(demo.a);
+  regB = Cls.from_hex(demo.b);
+  regR = Cls.new();
+  lastOp = "—";
+  renderAll();
+}
+
+// ── View-tab switching ────────────────────────────────────────────────────────
 function setupTabs(tabsId, key) {
-  const container = document.getElementById(tabsId);
-  container.addEventListener("click", e => {
+  document.getElementById(tabsId).addEventListener("click", e => {
     if (!e.target.dataset.view) return;
-    container.querySelectorAll("button").forEach(b => b.classList.remove("active"));
+    e.currentTarget.querySelectorAll("button").forEach(b => b.classList.remove("active"));
     e.target.classList.add("active");
     views[key] = e.target.dataset.view;
     renderReg(key, key === "a" ? regA : key === "b" ? regB : regR);
   });
 }
 
-// ── Hex set helpers ───────────────────────────────────────────────────────────
+// ── Hex input helpers ─────────────────────────────────────────────────────────
 function trySetFromHex(inputId, key) {
   const raw = document.getElementById(inputId).value.trim();
   try {
-    const reg = M128i.from_hex(raw || "0");
-    if (key === "a") regA = reg;
-    else             regB = reg;
+    const reg = REG_CLASS[regType].from_hex(raw || "0");
+    if (key === "a") regA = reg; else regB = reg;
     renderReg(key, key === "a" ? regA : regB);
   } catch (e) {
     alert("Invalid hex: " + e);
@@ -134,22 +167,135 @@ function trySetFromHex(inputId, key) {
 
 // ── Operations ────────────────────────────────────────────────────────────────
 function applyOp(op) {
-  const bits = parseInt(document.getElementById("shift-bits").value) || 1;
+  const bits  = (parseInt(document.getElementById("shift-bits").value) || 0) >>> 0;
+  const count = (parseInt(document.getElementById("lane-count").value) || 0) >>> 0;
+  const imm8  = (parseInt(document.getElementById("imm8-val").value)   || 0) & 0xff;
+  const pfx   = regType === "m128i" ? "_mm_" : regType === "m256i" ? "_mm256_" : "_mm512_";
+
   switch (op) {
-    case "and":        regR = regA.and(regB);              lastOp = "A AND B"; break;
-    case "or":         regR = regA.or(regB);               lastOp = "A OR B"; break;
-    case "xor":        regR = regA.xor(regB);              lastOp = "A XOR B"; break;
-    case "not-a":      regR = regA.not();                  lastOp = "NOT A"; break;
-    case "not-b":      regR = regB.not();                  lastOp = "NOT B"; break;
-    case "add_epi8":   regR = regA.add_epi8(regB);         lastOp = "ADD_EPI8(A,B)"; break;
-    case "add_epi16":  regR = regA.add_epi16(regB);        lastOp = "ADD_EPI16(A,B)"; break;
-    case "add_epi32":  regR = regA.add_epi32(regB);        lastOp = "ADD_EPI32(A,B)"; break;
-    case "shl":        regR = regA.shift_left_bits(bits);  lastOp = `SHL A ${bits}`; break;
-    case "shr":        regR = regA.shift_right_bits(bits); lastOp = `SHR A ${bits}`; break;
-    case "a-to-b":     regB = regA.clone_reg();            lastOp = "A→B"; break;
-    case "b-to-a":     regA = regB.clone_reg();            lastOp = "B→A"; break;
-    case "result-to-a": regA = regR.clone_reg();           lastOp = "R→A"; break;
-    case "result-to-b": regB = regR.clone_reg();           lastOp = "R→B"; break;
+    // ── Bitwise
+    case "and":    regR = regA.and(regB);    lastOp = pfx + "and_si"; break;
+    case "or":     regR = regA.or(regB);     lastOp = pfx + "or_si";  break;
+    case "xor":    regR = regA.xor(regB);    lastOp = pfx + "xor_si"; break;
+    case "andnot": regR = regA.andnot(regB); lastOp = pfx + "andnot_si"; break;
+    case "not-a":  regR = regA.not();        lastOp = "NOT A"; break;
+    case "not-b":  regR = regB.not();        lastOp = "NOT B"; break;
+
+    // ── Add
+    case "add_epi8":  regR = regA.add_epi8(regB);  lastOp = pfx + "add_epi8";  break;
+    case "add_epi16": regR = regA.add_epi16(regB); lastOp = pfx + "add_epi16"; break;
+    case "add_epi32": regR = regA.add_epi32(regB); lastOp = pfx + "add_epi32"; break;
+    case "add_epi64": regR = regA.add_epi64(regB); lastOp = pfx + "add_epi64"; break;
+
+    // ── Sub
+    case "sub_epi8":  regR = regA.sub_epi8(regB);  lastOp = pfx + "sub_epi8";  break;
+    case "sub_epi16": regR = regA.sub_epi16(regB); lastOp = pfx + "sub_epi16"; break;
+    case "sub_epi32": regR = regA.sub_epi32(regB); lastOp = pfx + "sub_epi32"; break;
+    case "sub_epi64": regR = regA.sub_epi64(regB); lastOp = pfx + "sub_epi64"; break;
+
+    // ── Saturating add
+    case "adds_epi8":  regR = regA.adds_epi8(regB);  lastOp = pfx + "adds_epi8";  break;
+    case "adds_epi16": regR = regA.adds_epi16(regB); lastOp = pfx + "adds_epi16"; break;
+    case "adds_epu8":  regR = regA.adds_epu8(regB);  lastOp = pfx + "adds_epu8";  break;
+    case "adds_epu16": regR = regA.adds_epu16(regB); lastOp = pfx + "adds_epu16"; break;
+
+    // ── Saturating sub
+    case "subs_epi8":  regR = regA.subs_epi8(regB);  lastOp = pfx + "subs_epi8";  break;
+    case "subs_epi16": regR = regA.subs_epi16(regB); lastOp = pfx + "subs_epi16"; break;
+    case "subs_epu8":  regR = regA.subs_epu8(regB);  lastOp = pfx + "subs_epu8";  break;
+    case "subs_epu16": regR = regA.subs_epu16(regB); lastOp = pfx + "subs_epu16"; break;
+
+    // ── Multiply
+    case "mullo_epi16": regR = regA.mullo_epi16(regB); lastOp = pfx + "mullo_epi16"; break;
+    case "mulhi_epi16": regR = regA.mulhi_epi16(regB); lastOp = pfx + "mulhi_epi16"; break;
+    case "mullo_epi32": regR = regA.mullo_epi32(regB); lastOp = pfx + "mullo_epi32"; break;
+
+    // ── Abs
+    case "abs_epi8":  regR = regA.abs_epi8();  lastOp = pfx + "abs_epi8";  break;
+    case "abs_epi16": regR = regA.abs_epi16(); lastOp = pfx + "abs_epi16"; break;
+    case "abs_epi32": regR = regA.abs_epi32(); lastOp = pfx + "abs_epi32"; break;
+
+    // ── Max signed
+    case "max_epi8":  regR = regA.max_epi8(regB);  lastOp = pfx + "max_epi8";  break;
+    case "max_epi16": regR = regA.max_epi16(regB); lastOp = pfx + "max_epi16"; break;
+    case "max_epi32": regR = regA.max_epi32(regB); lastOp = pfx + "max_epi32"; break;
+
+    // ── Min signed
+    case "min_epi8":  regR = regA.min_epi8(regB);  lastOp = pfx + "min_epi8";  break;
+    case "min_epi16": regR = regA.min_epi16(regB); lastOp = pfx + "min_epi16"; break;
+    case "min_epi32": regR = regA.min_epi32(regB); lastOp = pfx + "min_epi32"; break;
+
+    // ── Max unsigned
+    case "max_epu8":  regR = regA.max_epu8(regB);  lastOp = pfx + "max_epu8";  break;
+    case "max_epu16": regR = regA.max_epu16(regB); lastOp = pfx + "max_epu16"; break;
+    case "max_epu32": regR = regA.max_epu32(regB); lastOp = pfx + "max_epu32"; break;
+
+    // ── Min unsigned
+    case "min_epu8":  regR = regA.min_epu8(regB);  lastOp = pfx + "min_epu8";  break;
+    case "min_epu16": regR = regA.min_epu16(regB); lastOp = pfx + "min_epu16"; break;
+    case "min_epu32": regR = regA.min_epu32(regB); lastOp = pfx + "min_epu32"; break;
+
+    // ── Compare eq
+    case "cmpeq_epi8":  regR = regA.cmpeq_epi8(regB);  lastOp = pfx + "cmpeq_epi8";  break;
+    case "cmpeq_epi16": regR = regA.cmpeq_epi16(regB); lastOp = pfx + "cmpeq_epi16"; break;
+    case "cmpeq_epi32": regR = regA.cmpeq_epi32(regB); lastOp = pfx + "cmpeq_epi32"; break;
+    case "cmpeq_epi64": regR = regA.cmpeq_epi64(regB); lastOp = pfx + "cmpeq_epi64"; break;
+
+    // ── Compare gt
+    case "cmpgt_epi8":  regR = regA.cmpgt_epi8(regB);  lastOp = pfx + "cmpgt_epi8";  break;
+    case "cmpgt_epi16": regR = regA.cmpgt_epi16(regB); lastOp = pfx + "cmpgt_epi16"; break;
+    case "cmpgt_epi32": regR = regA.cmpgt_epi32(regB); lastOp = pfx + "cmpgt_epi32"; break;
+    case "cmpgt_epi64": regR = regA.cmpgt_epi64(regB); lastOp = pfx + "cmpgt_epi64"; break;
+
+    // ── Horizontal
+    case "hadd_epi16": regR = regA.hadd_epi16(regB); lastOp = pfx + "hadd_epi16"; break;
+    case "hadd_epi32": regR = regA.hadd_epi32(regB); lastOp = pfx + "hadd_epi32"; break;
+    case "hsub_epi16": regR = regA.hsub_epi16(regB); lastOp = pfx + "hsub_epi16"; break;
+    case "hsub_epi32": regR = regA.hsub_epi32(regB); lastOp = pfx + "hsub_epi32"; break;
+
+    // ── Per-lane shifts
+    case "slli_epi16": regR = regA.slli_epi16(count); lastOp = pfx + `slli_epi16(A,${count})`; break;
+    case "srli_epi16": regR = regA.srli_epi16(count); lastOp = pfx + `srli_epi16(A,${count})`; break;
+    case "srai_epi16": regR = regA.srai_epi16(count); lastOp = pfx + `srai_epi16(A,${count})`; break;
+    case "slli_epi32": regR = regA.slli_epi32(count); lastOp = pfx + `slli_epi32(A,${count})`; break;
+    case "srli_epi32": regR = regA.srli_epi32(count); lastOp = pfx + `srli_epi32(A,${count})`; break;
+    case "srai_epi32": regR = regA.srai_epi32(count); lastOp = pfx + `srai_epi32(A,${count})`; break;
+    case "slli_epi64": regR = regA.slli_epi64(count); lastOp = pfx + `slli_epi64(A,${count})`; break;
+    case "srli_epi64": regR = regA.srli_epi64(count); lastOp = pfx + `srli_epi64(A,${count})`; break;
+
+    // ── Full-register shifts
+    case "shl": regR = regA.shift_left_bits(bits);  lastOp = `SHL A by ${bits} bits`; break;
+    case "shr": regR = regA.shift_right_bits(bits); lastOp = `SHR A by ${bits} bits`; break;
+
+    // ── Unpack low
+    case "unpacklo_epi8":  regR = regA.unpacklo_epi8(regB);  lastOp = pfx + "unpacklo_epi8";  break;
+    case "unpacklo_epi16": regR = regA.unpacklo_epi16(regB); lastOp = pfx + "unpacklo_epi16"; break;
+    case "unpacklo_epi32": regR = regA.unpacklo_epi32(regB); lastOp = pfx + "unpacklo_epi32"; break;
+    case "unpacklo_epi64": regR = regA.unpacklo_epi64(regB); lastOp = pfx + "unpacklo_epi64"; break;
+
+    // ── Unpack high
+    case "unpackhi_epi8":  regR = regA.unpackhi_epi8(regB);  lastOp = pfx + "unpackhi_epi8";  break;
+    case "unpackhi_epi16": regR = regA.unpackhi_epi16(regB); lastOp = pfx + "unpackhi_epi16"; break;
+    case "unpackhi_epi32": regR = regA.unpackhi_epi32(regB); lastOp = pfx + "unpackhi_epi32"; break;
+    case "unpackhi_epi64": regR = regA.unpackhi_epi64(regB); lastOp = pfx + "unpackhi_epi64"; break;
+
+    // ── Pack
+    case "packs_epi16":  regR = regA.packs_epi16(regB);  lastOp = pfx + "packs_epi16";  break;
+    case "packs_epi32":  regR = regA.packs_epi32(regB);  lastOp = pfx + "packs_epi32";  break;
+    case "packus_epi16": regR = regA.packus_epi16(regB); lastOp = pfx + "packus_epi16"; break;
+    case "packus_epi32": regR = regA.packus_epi32(regB); lastOp = pfx + "packus_epi32"; break;
+
+    // ── Shuffle / align / blend
+    case "shuffle_epi32": regR = regA.shuffle_epi32(imm8);         lastOp = pfx + `shuffle_epi32(A,0x${imm8.toString(16).toUpperCase().padStart(2,"0")})`; break;
+    case "shuffle_epi8":  regR = regA.shuffle_epi8(regB);          lastOp = pfx + "shuffle_epi8(A,B)";         break;
+    case "alignr_epi8":   regR = regA.alignr_epi8(regB, imm8);     lastOp = pfx + `alignr_epi8(A,B,${imm8})`; break;
+    case "blendv_epi8":   regR = regA.blendv_epi8(regB, regB);     lastOp = pfx + "blendv_epi8(A,B,B)";       break;
+
+    // ── Copy
+    case "a-to-b":      regB = regA.clone_reg(); lastOp = "A → B"; break;
+    case "b-to-a":      regA = regB.clone_reg(); lastOp = "B → A"; break;
+    case "result-to-a": regA = regR.clone_reg(); lastOp = "Result → A"; break;
+    case "result-to-b": regB = regR.clone_reg(); lastOp = "Result → B"; break;
   }
   renderAll();
 }
@@ -163,21 +309,32 @@ setupTabs("tabs-a", "a");
 setupTabs("tabs-b", "b");
 setupTabs("tabs-r", "r");
 
+// Register-type selector
+document.querySelector(".regtype-sel").addEventListener("click", e => {
+  const type = e.target.dataset.type;
+  if (!type || type === regType) return;
+  e.currentTarget.querySelectorAll("button").forEach(b => b.classList.remove("active"));
+  e.target.classList.add("active");
+  switchRegType(type);
+});
+
+// Hex set
 document.getElementById("btn-set-a").addEventListener("click", () => trySetFromHex("hex-a", "a"));
 document.getElementById("btn-set-b").addEventListener("click", () => trySetFromHex("hex-b", "b"));
 document.getElementById("hex-a").addEventListener("keydown", e => { if (e.key === "Enter") trySetFromHex("hex-a", "a"); });
 document.getElementById("hex-b").addEventListener("keydown", e => { if (e.key === "Enter") trySetFromHex("hex-b", "b"); });
 
-document.getElementById("btn-clear-a").addEventListener("click", () => { regA = M128i.new(); renderReg("a", regA); });
-document.getElementById("btn-clear-b").addEventListener("click", () => { regB = M128i.new(); renderReg("b", regB); });
+// Clear
+document.getElementById("btn-clear-a").addEventListener("click", () => { regA = newReg(); renderReg("a", regA); });
+document.getElementById("btn-clear-b").addEventListener("click", () => { regB = newReg(); renderReg("b", regB); });
 
+// Operation buttons
 document.querySelectorAll(".op-btn[data-op]").forEach(btn => {
   btn.addEventListener("click", () => applyOp(btn.dataset.op));
 });
 
-// Seed registers with non-trivial demo values
-regA = M128i.from_epi32(0x00ff00ff, 0x0f0f0f0f, 0xaaaaaaaa, 0x12345678);
-regB = M128i.from_epi32(0xff00ff00, 0xf0f0f0f0, 0x55555555, 0x87654321);
+// Seed demo values
+regA = M128i.from_hex(DEMO_HEX.m128i.a);
+regB = M128i.from_hex(DEMO_HEX.m128i.b);
+regR = M128i.new();
 renderAll();
-
-
