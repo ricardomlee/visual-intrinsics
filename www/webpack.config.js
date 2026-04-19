@@ -6,6 +6,7 @@ module.exports = {
   output: {
     path: path.resolve(__dirname, "dist"),
     filename: "bootstrap.js",
+    publicPath: "/visual-intrinsics/",
   },
   mode: "development",
   experiments: {
