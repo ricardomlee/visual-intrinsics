@@ -211,7 +211,13 @@
       font-size: 10px; color: var(--muted); text-transform: uppercase;
       letter-spacing: 0.5px; padding-bottom: 2px;
       border-bottom: 1px solid var(--border);
+      cursor: pointer; display: flex; align-items: center; user-select: none;
     }
+    .op-group-label:hover { color: var(--text); }
+    .op-grp-arrow { margin-left: auto; font-size: 9px; transition: transform 0.15s ease; display: inline-block; }
+    .op-group.collapsed .op-grp-arrow { transform: rotate(-90deg); }
+    .op-group-body { overflow: hidden; max-height: 400px; transition: max-height 0.18s ease; }
+    .op-group.collapsed .op-group-body { max-height: 0; }
 
     .op-btn {
       width: 100%;
@@ -316,6 +322,47 @@
       .reg-panel, .ops-panel { border-right: none; border-bottom: 1px solid var(--border); }
       .result-body { grid-template-columns: 1fr; }
     }
+
+    /* ── Accordion: top-level categories ─────────────────────────────────── */
+    .op-cat { flex-shrink: 0; }
+    .op-cat-header {
+      display: flex; align-items: center; gap: 6px;
+      cursor: pointer; padding: 5px 7px;
+      border-radius: 4px; border: 1px solid var(--border);
+      background: var(--surface); user-select: none;
+      transition: border-color 0.12s, background 0.12s;
+    }
+    .op-cat-header:hover { border-color: var(--accent); }
+    .op-cat.open .op-cat-header { border-color: var(--accent); background: #1e2035; }
+    .op-cat-icon { font-size: 13px; line-height: 1; }
+    .op-cat-name { flex: 1; font-size: 11px; color: var(--text); letter-spacing: 0.3px; }
+    .op-cat-count { font-size: 9px; color: var(--muted); }
+    .op-cat-arrow {
+      font-size: 9px; color: var(--muted);
+      transition: transform 0.2s ease; display: inline-block;
+    }
+    .op-cat.open .op-cat-arrow { transform: rotate(90deg); }
+    .op-cat-body {
+      overflow: hidden; max-height: 0;
+      transition: max-height 0.22s ease;
+      display: flex; flex-direction: column; gap: 6px;
+      padding-left: 4px;
+    }
+    .op-cat.open .op-cat-body { max-height: 1600px; padding-top: 6px; }
+
+    /* ── Flash animation for changed result bits ──────────────────────── */
+    @keyframes bit-flash {
+      0%   { outline: 2px solid var(--yellow); outline-offset: 0px; }
+      100% { outline: 2px solid transparent; }
+    }
+    .bit.changed { animation: bit-flash 0.7s ease-out forwards; }
+
+    /* ── Result panel fade-in on update ──────────────────────────────── */
+    @keyframes result-update {
+      from { opacity: 0.35; }
+      to   { opacity: 1; }
+    }
+    .result-panel.updated { animation: result-update 0.18s ease-out forwards; }
   </style>
 </head>
 <body>
@@ -358,254 +405,315 @@
     <div class="ops-panel">
       <h2>Operations</h2>
 
-      <!-- Parameter inputs -->
-      <div class="op-group">
-        <div class="op-group-label">Parameters</div>
-        <div class="param-grid">
-          <label>bits</label>
-          <input id="shift-bits" type="number" value="1" min="0" max="511" title="Full-register shift count">
-          <label>count</label>
-          <input id="lane-count" type="number" value="1" min="0" max="63" title="Per-lane shift count">
-          <label>imm8</label>
-          <input id="imm8-val" type="number" value="0xe4" min="0" max="255" title="Immediate byte (0–255) for shuffle/align">
+      <!-- ⚙️ Utilities ─────────────────────────────────────────────────── -->
+      <div class="op-cat open" id="cat-utilities">
+        <div class="op-cat-header">
+          <span class="op-cat-icon">⚙️</span>
+          <span class="op-cat-name">Utilities</span>
+          <span class="op-cat-count">params · copy</span>
+          <span class="op-cat-arrow">▶</span>
+        </div>
+        <div class="op-cat-body">
+          <div class="op-group" data-grp-id="grp-params">
+            <div class="op-group-label">Parameters <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="param-grid">
+                <label>bits</label>
+                <input id="shift-bits" type="number" value="1" min="0" max="511" title="Full-register shift count">
+                <label>count</label>
+                <input id="lane-count" type="number" value="1" min="0" max="63" title="Per-lane shift count">
+                <label>imm8</label>
+                <input id="imm8-val" type="number" value="0xe4" min="0" max="255" title="Immediate byte (0–255) for shuffle/align">
+              </div>
+            </div>
+          </div>
+          <div class="op-group" data-grp-id="grp-copy">
+            <div class="op-group-label">Copy <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="op-grid">
+                <button class="op-btn" data-op="a-to-b">A → B</button>
+                <button class="op-btn" data-op="b-to-a">B → A</button>
+                <button class="op-btn" data-op="result-to-a">Result → A</button>
+                <button class="op-btn" data-op="result-to-b">Result → B</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- Bitwise -->
-      <div class="op-group">
-        <div class="op-group-label">Bitwise (A op B)</div>
-        <div class="op-grid">
-          <button class="op-btn" data-op="and"><span class="op-sym">&amp;</span>AND</button>
-          <button class="op-btn" data-op="or"><span class="op-sym">|</span>OR</button>
-          <button class="op-btn" data-op="xor"><span class="op-sym">^</span>XOR</button>
-          <button class="op-btn" data-op="andnot"><span class="op-sym">~&amp;</span>ANDNOT</button>
-          <button class="op-btn" data-op="not-a"><span class="op-sym">~</span>NOT A</button>
-          <button class="op-btn" data-op="not-b"><span class="op-sym">~</span>NOT B</button>
+      <!-- 🔢 Arithmetic ──────────────────────────────────────────────────── -->
+      <div class="op-cat open" id="cat-arithmetic">
+        <div class="op-cat-header">
+          <span class="op-cat-icon">🔢</span>
+          <span class="op-cat-name">Arithmetic</span>
+          <span class="op-cat-count">add · sub · sat · mul · abs · horiz</span>
+          <span class="op-cat-arrow">▶</span>
+        </div>
+        <div class="op-cat-body">
+          <div class="op-group" data-grp-id="grp-add">
+            <div class="op-group-label">Add (A+B, wrapping) <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="op-grid">
+                <button class="op-btn" data-op="add_epi8">add_epi8</button>
+                <button class="op-btn" data-op="add_epi16">add_epi16</button>
+                <button class="op-btn" data-op="add_epi32">add_epi32</button>
+                <button class="op-btn" data-op="add_epi64">add_epi64</button>
+              </div>
+            </div>
+          </div>
+          <div class="op-group" data-grp-id="grp-sub">
+            <div class="op-group-label">Sub (A−B, wrapping) <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="op-grid">
+                <button class="op-btn" data-op="sub_epi8">sub_epi8</button>
+                <button class="op-btn" data-op="sub_epi16">sub_epi16</button>
+                <button class="op-btn" data-op="sub_epi32">sub_epi32</button>
+                <button class="op-btn" data-op="sub_epi64">sub_epi64</button>
+              </div>
+            </div>
+          </div>
+          <div class="op-group" data-grp-id="grp-adds">
+            <div class="op-group-label">Saturating Add (A+B) <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="op-grid">
+                <button class="op-btn" data-op="adds_epi8">adds_epi8</button>
+                <button class="op-btn" data-op="adds_epi16">adds_epi16</button>
+                <button class="op-btn" data-op="adds_epu8">adds_epu8</button>
+                <button class="op-btn" data-op="adds_epu16">adds_epu16</button>
+              </div>
+            </div>
+          </div>
+          <div class="op-group" data-grp-id="grp-subs">
+            <div class="op-group-label">Saturating Sub (A−B) <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="op-grid">
+                <button class="op-btn" data-op="subs_epi8">subs_epi8</button>
+                <button class="op-btn" data-op="subs_epi16">subs_epi16</button>
+                <button class="op-btn" data-op="subs_epu8">subs_epu8</button>
+                <button class="op-btn" data-op="subs_epu16">subs_epu16</button>
+              </div>
+            </div>
+          </div>
+          <div class="op-group" data-grp-id="grp-mul">
+            <div class="op-group-label">Multiply (A×B) <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="op-grid">
+                <button class="op-btn" data-op="mullo_epi16">mullo_epi16</button>
+                <button class="op-btn" data-op="mulhi_epi16">mulhi_epi16</button>
+                <button class="op-btn" data-op="mullo_epi32">mullo_epi32</button>
+              </div>
+            </div>
+          </div>
+          <div class="op-group" data-grp-id="grp-abs">
+            <div class="op-group-label">Absolute Value (|A|) <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="op-grid">
+                <button class="op-btn" data-op="abs_epi8">abs_epi8</button>
+                <button class="op-btn" data-op="abs_epi16">abs_epi16</button>
+                <button class="op-btn" data-op="abs_epi32">abs_epi32</button>
+              </div>
+            </div>
+          </div>
+          <div class="op-group" data-grp-id="grp-horiz">
+            <div class="op-group-label">Horizontal (A,B in-lane) <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="op-grid">
+                <button class="op-btn" data-op="hadd_epi16">hadd_epi16</button>
+                <button class="op-btn" data-op="hadd_epi32">hadd_epi32</button>
+                <button class="op-btn" data-op="hsub_epi16">hsub_epi16</button>
+                <button class="op-btn" data-op="hsub_epi32">hsub_epi32</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- Add -->
-      <div class="op-group">
-        <div class="op-group-label">Add (A+B, wrapping)</div>
-        <div class="op-grid">
-          <button class="op-btn" data-op="add_epi8">add_epi8</button>
-          <button class="op-btn" data-op="add_epi16">add_epi16</button>
-          <button class="op-btn" data-op="add_epi32">add_epi32</button>
-          <button class="op-btn" data-op="add_epi64">add_epi64</button>
+      <!-- 🔀 Bitwise & Shift ─────────────────────────────────────────────── -->
+      <div class="op-cat" id="cat-bitshift">
+        <div class="op-cat-header">
+          <span class="op-cat-icon">🔀</span>
+          <span class="op-cat-name">Bitwise &amp; Shift</span>
+          <span class="op-cat-count">bitwise · per-lane · full-reg</span>
+          <span class="op-cat-arrow">▶</span>
+        </div>
+        <div class="op-cat-body">
+          <div class="op-group" data-grp-id="grp-bitwise">
+            <div class="op-group-label">Bitwise (A op B) <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="op-grid">
+                <button class="op-btn" data-op="and"><span class="op-sym">&amp;</span>AND</button>
+                <button class="op-btn" data-op="or"><span class="op-sym">|</span>OR</button>
+                <button class="op-btn" data-op="xor"><span class="op-sym">^</span>XOR</button>
+                <button class="op-btn" data-op="andnot"><span class="op-sym">~&amp;</span>ANDNOT</button>
+                <button class="op-btn" data-op="not-a"><span class="op-sym">~</span>NOT A</button>
+                <button class="op-btn" data-op="not-b"><span class="op-sym">~</span>NOT B</button>
+              </div>
+            </div>
+          </div>
+          <div class="op-group" data-grp-id="grp-lane-shift">
+            <div class="op-group-label">Per-lane Shift A by <em>count</em> <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="op-grid">
+                <button class="op-btn" data-op="slli_epi16">slli_epi16</button>
+                <button class="op-btn" data-op="srli_epi16">srli_epi16</button>
+                <button class="op-btn" data-op="slli_epi32">slli_epi32</button>
+                <button class="op-btn" data-op="srli_epi32">srli_epi32</button>
+                <button class="op-btn" data-op="slli_epi64">slli_epi64</button>
+                <button class="op-btn" data-op="srli_epi64">srli_epi64</button>
+                <button class="op-btn" data-op="srai_epi16">srai_epi16</button>
+                <button class="op-btn" data-op="srai_epi32">srai_epi32</button>
+              </div>
+            </div>
+          </div>
+          <div class="op-group" data-grp-id="grp-reg-shift">
+            <div class="op-group-label">Full-register Shift A by <em>bits</em> <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="op-grid">
+                <button class="op-btn" data-op="shl"><span class="op-sym">«</span>SHL A</button>
+                <button class="op-btn" data-op="shr"><span class="op-sym">»</span>SHR A</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- Sub -->
-      <div class="op-group">
-        <div class="op-group-label">Sub (A−B, wrapping)</div>
-        <div class="op-grid">
-          <button class="op-btn" data-op="sub_epi8">sub_epi8</button>
-          <button class="op-btn" data-op="sub_epi16">sub_epi16</button>
-          <button class="op-btn" data-op="sub_epi32">sub_epi32</button>
-          <button class="op-btn" data-op="sub_epi64">sub_epi64</button>
+      <!-- 🔍 Comparison & Select ─────────────────────────────────────────── -->
+      <div class="op-cat" id="cat-compare">
+        <div class="op-cat-header">
+          <span class="op-cat-icon">🔍</span>
+          <span class="op-cat-name">Comparison &amp; Select</span>
+          <span class="op-cat-count">eq · gt · max · min</span>
+          <span class="op-cat-arrow">▶</span>
+        </div>
+        <div class="op-cat-body">
+          <div class="op-group" data-grp-id="grp-cmpeq">
+            <div class="op-group-label">Compare EQ (A==B → 0xFF/0x00) <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="op-grid">
+                <button class="op-btn" data-op="cmpeq_epi8">cmpeq_epi8</button>
+                <button class="op-btn" data-op="cmpeq_epi16">cmpeq_epi16</button>
+                <button class="op-btn" data-op="cmpeq_epi32">cmpeq_epi32</button>
+                <button class="op-btn" data-op="cmpeq_epi64">cmpeq_epi64</button>
+              </div>
+            </div>
+          </div>
+          <div class="op-group" data-grp-id="grp-cmpgt">
+            <div class="op-group-label">Compare GT signed (A&gt;B → 0xFF/0x00) <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="op-grid">
+                <button class="op-btn" data-op="cmpgt_epi8">cmpgt_epi8</button>
+                <button class="op-btn" data-op="cmpgt_epi16">cmpgt_epi16</button>
+                <button class="op-btn" data-op="cmpgt_epi32">cmpgt_epi32</button>
+                <button class="op-btn" data-op="cmpgt_epi64">cmpgt_epi64</button>
+              </div>
+            </div>
+          </div>
+          <div class="op-group" data-grp-id="grp-max-s">
+            <div class="op-group-label">Max signed (A,B) <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="op-grid">
+                <button class="op-btn" data-op="max_epi8">max_epi8</button>
+                <button class="op-btn" data-op="max_epi16">max_epi16</button>
+                <button class="op-btn" data-op="max_epi32">max_epi32</button>
+              </div>
+            </div>
+          </div>
+          <div class="op-group" data-grp-id="grp-min-s">
+            <div class="op-group-label">Min signed (A,B) <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="op-grid">
+                <button class="op-btn" data-op="min_epi8">min_epi8</button>
+                <button class="op-btn" data-op="min_epi16">min_epi16</button>
+                <button class="op-btn" data-op="min_epi32">min_epi32</button>
+              </div>
+            </div>
+          </div>
+          <div class="op-group" data-grp-id="grp-max-u">
+            <div class="op-group-label">Max unsigned (A,B) <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="op-grid">
+                <button class="op-btn" data-op="max_epu8">max_epu8</button>
+                <button class="op-btn" data-op="max_epu16">max_epu16</button>
+                <button class="op-btn" data-op="max_epu32">max_epu32</button>
+              </div>
+            </div>
+          </div>
+          <div class="op-group" data-grp-id="grp-min-u">
+            <div class="op-group-label">Min unsigned (A,B) <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="op-grid">
+                <button class="op-btn" data-op="min_epu8">min_epu8</button>
+                <button class="op-btn" data-op="min_epu16">min_epu16</button>
+                <button class="op-btn" data-op="min_epu32">min_epu32</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- Saturating add -->
-      <div class="op-group">
-        <div class="op-group-label">Saturating Add (A+B)</div>
-        <div class="op-grid">
-          <button class="op-btn" data-op="adds_epi8">adds_epi8</button>
-          <button class="op-btn" data-op="adds_epi16">adds_epi16</button>
-          <button class="op-btn" data-op="adds_epu8">adds_epu8</button>
-          <button class="op-btn" data-op="adds_epu16">adds_epu16</button>
+      <!-- 📦 Rearrangement ──────────────────────────────────────────────── -->
+      <div class="op-cat" id="cat-rearrange">
+        <div class="op-cat-header">
+          <span class="op-cat-icon">📦</span>
+          <span class="op-cat-name">Rearrangement</span>
+          <span class="op-cat-count">unpack · pack · shuffle · blend</span>
+          <span class="op-cat-arrow">▶</span>
+        </div>
+        <div class="op-cat-body">
+          <div class="op-group" data-grp-id="grp-unpacklo">
+            <div class="op-group-label">Unpack Low (A lo, B lo, in-lane) <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="op-grid">
+                <button class="op-btn" data-op="unpacklo_epi8">lo_epi8</button>
+                <button class="op-btn" data-op="unpacklo_epi16">lo_epi16</button>
+                <button class="op-btn" data-op="unpacklo_epi32">lo_epi32</button>
+                <button class="op-btn" data-op="unpacklo_epi64">lo_epi64</button>
+              </div>
+            </div>
+          </div>
+          <div class="op-group" data-grp-id="grp-unpackhi">
+            <div class="op-group-label">Unpack High (A hi, B hi, in-lane) <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="op-grid">
+                <button class="op-btn" data-op="unpackhi_epi8">hi_epi8</button>
+                <button class="op-btn" data-op="unpackhi_epi16">hi_epi16</button>
+                <button class="op-btn" data-op="unpackhi_epi32">hi_epi32</button>
+                <button class="op-btn" data-op="unpackhi_epi64">hi_epi64</button>
+              </div>
+            </div>
+          </div>
+          <div class="op-group" data-grp-id="grp-pack">
+            <div class="op-group-label">Pack (A+B saturate, in-lane) <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="op-grid">
+                <button class="op-btn" data-op="packs_epi16">packs i16→i8</button>
+                <button class="op-btn" data-op="packs_epi32">packs i32→i16</button>
+                <button class="op-btn" data-op="packus_epi16">packus i16→u8</button>
+                <button class="op-btn" data-op="packus_epi32">packus i32→u16</button>
+              </div>
+            </div>
+          </div>
+          <div class="op-group" data-grp-id="grp-shuffle">
+            <div class="op-group-label">Shuffle (in-lane, uses <em>imm8</em> / B) <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="op-grid">
+                <button class="op-btn" data-op="shuffle_epi32">shuffle_epi32(A,imm8)</button>
+                <button class="op-btn" data-op="shuffle_epi8">pshufb(A, B)</button>
+              </div>
+            </div>
+          </div>
+          <div class="op-group" data-grp-id="grp-align-blend">
+            <div class="op-group-label">Align / Blend (uses <em>imm8</em> / B) <span class="op-grp-arrow">▼</span></div>
+            <div class="op-group-body">
+              <div class="op-grid">
+                <button class="op-btn" data-op="alignr_epi8">alignr(A,B,imm8)</button>
+                <button class="op-btn" data-op="blendv_epi8">blendv(A,B,B)</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- Saturating sub -->
-      <div class="op-group">
-        <div class="op-group-label">Saturating Sub (A−B)</div>
-        <div class="op-grid">
-          <button class="op-btn" data-op="subs_epi8">subs_epi8</button>
-          <button class="op-btn" data-op="subs_epi16">subs_epi16</button>
-          <button class="op-btn" data-op="subs_epu8">subs_epu8</button>
-          <button class="op-btn" data-op="subs_epu16">subs_epu16</button>
-        </div>
-      </div>
-
-      <!-- Multiply -->
-      <div class="op-group">
-        <div class="op-group-label">Multiply (A×B)</div>
-        <div class="op-grid">
-          <button class="op-btn" data-op="mullo_epi16">mullo_epi16</button>
-          <button class="op-btn" data-op="mulhi_epi16">mulhi_epi16</button>
-          <button class="op-btn" data-op="mullo_epi32">mullo_epi32</button>
-        </div>
-      </div>
-
-      <!-- Absolute value -->
-      <div class="op-group">
-        <div class="op-group-label">Absolute Value (|A|)</div>
-        <div class="op-grid">
-          <button class="op-btn" data-op="abs_epi8">abs_epi8</button>
-          <button class="op-btn" data-op="abs_epi16">abs_epi16</button>
-          <button class="op-btn" data-op="abs_epi32">abs_epi32</button>
-        </div>
-      </div>
-
-      <!-- Max signed -->
-      <div class="op-group">
-        <div class="op-group-label">Max signed (A,B)</div>
-        <div class="op-grid">
-          <button class="op-btn" data-op="max_epi8">max_epi8</button>
-          <button class="op-btn" data-op="max_epi16">max_epi16</button>
-          <button class="op-btn" data-op="max_epi32">max_epi32</button>
-        </div>
-      </div>
-
-      <!-- Min signed -->
-      <div class="op-group">
-        <div class="op-group-label">Min signed (A,B)</div>
-        <div class="op-grid">
-          <button class="op-btn" data-op="min_epi8">min_epi8</button>
-          <button class="op-btn" data-op="min_epi16">min_epi16</button>
-          <button class="op-btn" data-op="min_epi32">min_epi32</button>
-        </div>
-      </div>
-
-      <!-- Max unsigned -->
-      <div class="op-group">
-        <div class="op-group-label">Max unsigned (A,B)</div>
-        <div class="op-grid">
-          <button class="op-btn" data-op="max_epu8">max_epu8</button>
-          <button class="op-btn" data-op="max_epu16">max_epu16</button>
-          <button class="op-btn" data-op="max_epu32">max_epu32</button>
-        </div>
-      </div>
-
-      <!-- Min unsigned -->
-      <div class="op-group">
-        <div class="op-group-label">Min unsigned (A,B)</div>
-        <div class="op-grid">
-          <button class="op-btn" data-op="min_epu8">min_epu8</button>
-          <button class="op-btn" data-op="min_epu16">min_epu16</button>
-          <button class="op-btn" data-op="min_epu32">min_epu32</button>
-        </div>
-      </div>
-
-      <!-- Compare eq -->
-      <div class="op-group">
-        <div class="op-group-label">Compare EQ (A==B → 0xFF/0x00)</div>
-        <div class="op-grid">
-          <button class="op-btn" data-op="cmpeq_epi8">cmpeq_epi8</button>
-          <button class="op-btn" data-op="cmpeq_epi16">cmpeq_epi16</button>
-          <button class="op-btn" data-op="cmpeq_epi32">cmpeq_epi32</button>
-          <button class="op-btn" data-op="cmpeq_epi64">cmpeq_epi64</button>
-        </div>
-      </div>
-
-      <!-- Compare gt -->
-      <div class="op-group">
-        <div class="op-group-label">Compare GT signed (A&gt;B → 0xFF/0x00)</div>
-        <div class="op-grid">
-          <button class="op-btn" data-op="cmpgt_epi8">cmpgt_epi8</button>
-          <button class="op-btn" data-op="cmpgt_epi16">cmpgt_epi16</button>
-          <button class="op-btn" data-op="cmpgt_epi32">cmpgt_epi32</button>
-          <button class="op-btn" data-op="cmpgt_epi64">cmpgt_epi64</button>
-        </div>
-      </div>
-
-      <!-- Horizontal -->
-      <div class="op-group">
-        <div class="op-group-label">Horizontal (A,B in-lane)</div>
-        <div class="op-grid">
-          <button class="op-btn" data-op="hadd_epi16">hadd_epi16</button>
-          <button class="op-btn" data-op="hadd_epi32">hadd_epi32</button>
-          <button class="op-btn" data-op="hsub_epi16">hsub_epi16</button>
-          <button class="op-btn" data-op="hsub_epi32">hsub_epi32</button>
-        </div>
-      </div>
-
-      <!-- Per-lane logical shift -->
-      <div class="op-group">
-        <div class="op-group-label">Per-lane Shift A by <em>count</em></div>
-        <div class="op-grid">
-          <button class="op-btn" data-op="slli_epi16">slli_epi16</button>
-          <button class="op-btn" data-op="srli_epi16">srli_epi16</button>
-          <button class="op-btn" data-op="slli_epi32">slli_epi32</button>
-          <button class="op-btn" data-op="srli_epi32">srli_epi32</button>
-          <button class="op-btn" data-op="slli_epi64">slli_epi64</button>
-          <button class="op-btn" data-op="srli_epi64">srli_epi64</button>
-          <button class="op-btn" data-op="srai_epi16">srai_epi16</button>
-          <button class="op-btn" data-op="srai_epi32">srai_epi32</button>
-        </div>
-      </div>
-
-      <!-- Full-register shift -->
-      <div class="op-group">
-        <div class="op-group-label">Full-register Shift A by <em>bits</em></div>
-        <div class="op-grid">
-          <button class="op-btn" data-op="shl"><span class="op-sym">«</span>SHL A</button>
-          <button class="op-btn" data-op="shr"><span class="op-sym">»</span>SHR A</button>
-        </div>
-      </div>
-
-      <!-- Unpack low -->
-      <div class="op-group">
-        <div class="op-group-label">Unpack Low (A lo, B lo, in-lane)</div>
-        <div class="op-grid">
-          <button class="op-btn" data-op="unpacklo_epi8">lo_epi8</button>
-          <button class="op-btn" data-op="unpacklo_epi16">lo_epi16</button>
-          <button class="op-btn" data-op="unpacklo_epi32">lo_epi32</button>
-          <button class="op-btn" data-op="unpacklo_epi64">lo_epi64</button>
-        </div>
-      </div>
-
-      <!-- Unpack high -->
-      <div class="op-group">
-        <div class="op-group-label">Unpack High (A hi, B hi, in-lane)</div>
-        <div class="op-grid">
-          <button class="op-btn" data-op="unpackhi_epi8">hi_epi8</button>
-          <button class="op-btn" data-op="unpackhi_epi16">hi_epi16</button>
-          <button class="op-btn" data-op="unpackhi_epi32">hi_epi32</button>
-          <button class="op-btn" data-op="unpackhi_epi64">hi_epi64</button>
-        </div>
-      </div>
-
-      <!-- Pack -->
-      <div class="op-group">
-        <div class="op-group-label">Pack (A+B saturate, in-lane)</div>
-        <div class="op-grid">
-          <button class="op-btn" data-op="packs_epi16">packs i16→i8</button>
-          <button class="op-btn" data-op="packs_epi32">packs i32→i16</button>
-          <button class="op-btn" data-op="packus_epi16">packus i16→u8</button>
-          <button class="op-btn" data-op="packus_epi32">packus i32→u16</button>
-        </div>
-      </div>
-
-      <!-- Shuffle -->
-      <div class="op-group">
-        <div class="op-group-label">Shuffle (in-lane, uses <em>imm8</em> / B)</div>
-        <div class="op-grid">
-          <button class="op-btn" data-op="shuffle_epi32">shuffle_epi32(A,imm8)</button>
-          <button class="op-btn" data-op="shuffle_epi8">pshufb(A, B)</button>
-        </div>
-      </div>
-
-      <!-- Align & Blend -->
-      <div class="op-group">
-        <div class="op-group-label">Align / Blend (uses <em>imm8</em> / B)</div>
-        <div class="op-grid">
-          <button class="op-btn" data-op="alignr_epi8">alignr(A,B,imm8)</button>
-          <button class="op-btn" data-op="blendv_epi8">blendv(A,B,B)</button>
-        </div>
-      </div>
-
-      <!-- Copy -->
-      <div class="op-group">
-        <div class="op-group-label">Copy</div>
-        <div class="op-grid">
-          <button class="op-btn" data-op="a-to-b">A → B</button>
-          <button class="op-btn" data-op="b-to-a">B → A</button>
-          <button class="op-btn" data-op="result-to-a">Result → A</button>
-          <button class="op-btn" data-op="result-to-b">Result → B</button>
-        </div>
-      </div>
     </div><!-- /ops-panel -->
 
     <!-- ── Register B ──────────────────────────────────────────────────────── -->

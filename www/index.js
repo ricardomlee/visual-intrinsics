@@ -24,6 +24,7 @@ const DEMO_HEX = {
 
 let regA, regB, regR;
 let lastOp = "—";
+let prevResultBits = null;
 
 const views = { a: "epi8", b: "epi8", r: "epi8" };
 
@@ -44,6 +45,7 @@ function buildGrid(id) {
     const d = document.createElement("div");
     d.className = "bit off";
     d.dataset.idx = i;
+    d.title = `bit ${i}`;
     el.appendChild(d);
   }
 }
@@ -59,13 +61,24 @@ function renderReg(key, reg) {
   const cells = document.getElementById("grid-" + key).children;
   for (let i = 0; i < totalBits; i++) {
     const cell = cells[i];
-    cell.className = "bit " + (bits[i] === "1" ? "on" : "off");
+    const newBit = bits[i];
+    const wasChanged = key === "r" && prevResultBits !== null && prevResultBits[i] !== newBit;
+
+    cell.className = "bit " + (newBit === "1" ? "on" : "off");
     if (view === "bits") {
       cell.removeAttribute("data-lane");
+      cell.title = `bit ${i}`;
     } else {
-      cell.dataset.lane = Math.floor(i / bpl) % 8;
+      const lane = Math.floor(i / bpl) % 8;
+      cell.dataset.lane = lane;
+      cell.title = `bit ${i} · lane ${lane}`;
+    }
+    if (wasChanged) {
+      cell.classList.add("changed");
+      cell.addEventListener("animationend", () => cell.classList.remove("changed"), { once: true });
     }
   }
+  if (key === "r") prevResultBits = Array.from(bits);
 
   // lane value table
   const table = document.getElementById("lanes-" + key);
@@ -120,11 +133,18 @@ function renderAll() {
   renderReg("b", regB);
   renderReg("r", regR);
   document.getElementById("result-op-label").textContent = lastOp;
+
+  // Trigger result panel fade-in animation
+  const resultPanel = document.querySelector(".result-panel");
+  resultPanel.classList.remove("updated");
+  void resultPanel.offsetWidth; // force reflow
+  resultPanel.classList.add("updated");
 }
 
 // ── Register-type switching ───────────────────────────────────────────────────
 function switchRegType(type) {
   regType = type;
+  prevResultBits = null;
   const tag = REG_TAG[type];
   document.getElementById("tag-a").textContent = tag;
   document.getElementById("tag-b").textContent = tag;
@@ -338,3 +358,35 @@ regA = M128i.from_hex(DEMO_HEX.m128i.a);
 regB = M128i.from_hex(DEMO_HEX.m128i.b);
 regR = M128i.new();
 renderAll();
+
+// ── Accordion ────────────────────────────────────────────────────────────────
+(function initAccordion() {
+  function loadState() {
+    try { return JSON.parse(localStorage.getItem("vi-accordion") || "{}"); } catch { return {}; }
+  }
+  function saveState(s) {
+    try { localStorage.setItem("vi-accordion", JSON.stringify(s)); } catch { /* storage unavailable */ }
+  }
+
+  const state = loadState();
+
+  // Top-level category toggles
+  document.querySelectorAll(".op-cat").forEach(cat => {
+    const id = cat.id;
+    if (id && id in state) cat.classList.toggle("open", state[id]);
+    cat.querySelector(".op-cat-header").addEventListener("click", () => {
+      cat.classList.toggle("open");
+      if (id) { const s = loadState(); s[id] = cat.classList.contains("open"); saveState(s); }
+    });
+  });
+
+  // Sub-group collapsible labels
+  document.querySelectorAll(".op-group").forEach(group => {
+    const grpId = group.dataset.grpId;
+    if (grpId && grpId in state) group.classList.toggle("collapsed", state[grpId]);
+    group.querySelector(".op-group-label").addEventListener("click", () => {
+      group.classList.toggle("collapsed");
+      if (grpId) { const s = loadState(); s[grpId] = group.classList.contains("collapsed"); saveState(s); }
+    });
+  });
+})();
