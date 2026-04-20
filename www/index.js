@@ -69,8 +69,9 @@ function renderReg(key, reg) {
       cell.removeAttribute("data-lane");
       cell.title = `bit ${i}`;
     } else {
-      const lane = Math.floor(i / bpl) % 8;
-      cell.dataset.lane = lane;
+      const lane = Math.floor(i / bpl);
+      const styledLane = lane % 8;
+      cell.dataset.lane = styledLane;
       cell.title = `bit ${i} · lane ${lane}`;
     }
     if (wasChanged) {
