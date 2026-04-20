@@ -74,6 +74,8 @@ function renderReg(key, reg) {
       cell.title = `bit ${i} · lane ${lane}`;
     }
     if (wasChanged) {
+      cell.classList.remove("changed");
+      void cell.offsetWidth;
       cell.classList.add("changed");
       cell.addEventListener("animationend", () => cell.classList.remove("changed"), { once: true });
     }
