@@ -362,10 +362,10 @@ renderAll();
 // ── Accordion ────────────────────────────────────────────────────────────────
 (function initAccordion() {
   function loadState() {
-    try { return JSON.parse(localStorage.getItem("vi-accordion") || "{}"); } catch { return {}; }
+    try { return JSON.parse(localStorage.getItem("vi-accordion") || "{}"); } catch (e) { console.error("vi-accordion load:", e); return {}; }
   }
   function saveState(s) {
-    try { localStorage.setItem("vi-accordion", JSON.stringify(s)); } catch { /* storage unavailable */ }
+    try { localStorage.setItem("vi-accordion", JSON.stringify(s)); } catch (e) { console.error("vi-accordion save:", e); }
   }
 
   const state = loadState();
