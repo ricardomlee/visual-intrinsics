@@ -199,6 +199,9 @@ function commitLaneEdit(key, view, laneIdx, newValueStr) {
     return;
   }
 
+  // Skip reconstruction if the value didn't actually change
+  if (String(newVal) === String(vals[laneIdx])) return;
+
   vals[laneIdx] = newVal;
 
   // Reconstruct the full register hex (big-endian: MSB lane first)
@@ -434,6 +437,7 @@ document.querySelectorAll(".op-btn[data-op]").forEach(btn => {
 document.getElementById("lane-edit-toggle").addEventListener("click", function () {
   laneEditMode = !laneEditMode;
   this.classList.toggle("active", laneEditMode);
+  this.setAttribute("aria-pressed", laneEditMode ? "true" : "false");
   renderReg("a", regA);
   renderReg("b", regB);
 });
