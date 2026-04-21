@@ -120,11 +120,19 @@ function renderReg(key, reg) {
       // Capture li and view at closure time
       const capturedLi = li;
       const capturedView = view;
+      let editCancelled = false;
       valEl.addEventListener("keydown", e => {
         if (e.key === "Enter")  { commitLaneEdit(key, capturedView, capturedLi, valEl.value); e.preventDefault(); }
-        if (e.key === "Escape") { renderReg(key, key === "a" ? regA : regB); }
+        if (e.key === "Escape") {
+          editCancelled = true;
+          e.preventDefault();
+          renderReg(key, key === "a" ? regA : regB);
+        }
       });
-      valEl.addEventListener("blur", () => commitLaneEdit(key, capturedView, capturedLi, valEl.value));
+      valEl.addEventListener("blur", () => {
+        if (editCancelled) return;
+        commitLaneEdit(key, capturedView, capturedLi, valEl.value);
+      });
     } else {
       valEl = document.createElement("span");
       valEl.className = "lane-val";
