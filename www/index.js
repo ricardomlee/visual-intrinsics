@@ -116,6 +116,7 @@ function renderReg(key, reg) {
       valEl.className = "lane-val lane-val-input";
       valEl.value = vals[li];
       valEl.title = "Edit lane " + li + " value; press Enter to apply";
+      valEl.setAttribute("aria-label", "Edit register " + key + " " + view + " lane " + li + " value");
       // Capture li and view at closure time
       const capturedLi = li;
       const capturedView = view;
