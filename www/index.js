@@ -25,6 +25,7 @@ const DEMO_HEX = {
 let regA, regB, regR;
 let lastOp = "—";
 let prevResultBits = null;
+let laneEditMode = false;
 
 const views = { a: "epi8", b: "epi8", r: "epi8" };
 
@@ -108,9 +109,35 @@ function renderReg(key, reg) {
     idxEl.className = "lane-idx";
     idxEl.textContent = "[" + li + "]";
 
-    const valEl = document.createElement("span");
-    valEl.className = "lane-val";
-    valEl.textContent = vals[li];
+    let valEl;
+    if (laneEditMode && key !== "r") {
+      valEl = document.createElement("input");
+      valEl.type = "text";
+      valEl.className = "lane-val lane-val-input";
+      valEl.value = vals[li];
+      valEl.title = "Edit lane " + li + " value; press Enter to apply";
+      valEl.setAttribute("aria-label", "Edit register " + key + " " + view + " lane " + li + " value");
+      // Capture li and view at closure time
+      const capturedLi = li;
+      const capturedView = view;
+      let editCancelled = false;
+      valEl.addEventListener("keydown", e => {
+        if (e.key === "Enter")  { commitLaneEdit(key, capturedView, capturedLi, valEl.value); e.preventDefault(); }
+        if (e.key === "Escape") {
+          editCancelled = true;
+          e.preventDefault();
+          renderReg(key, key === "a" ? regA : regB);
+        }
+      });
+      valEl.addEventListener("blur", () => {
+        if (editCancelled) return;
+        commitLaneEdit(key, capturedView, capturedLi, valEl.value);
+      });
+    } else {
+      valEl = document.createElement("span");
+      valEl.className = "lane-val";
+      valEl.textContent = vals[li];
+    }
 
     const hexEl = document.createElement("span");
     hexEl.className = "lane-hex";
@@ -142,6 +169,65 @@ function renderAll() {
   resultPanel.classList.remove("updated");
   void resultPanel.offsetWidth; // force reflow
   resultPanel.classList.add("updated");
+}
+
+// ── Editable lane values ──────────────────────────────────────────────────────
+function commitLaneEdit(key, view, laneIdx, newValueStr) {
+  const reg = key === "a" ? regA : regB;
+  const bpl = bitsPerLane(view);
+  const totalBits = REG_BITS[regType];
+  const numLanes = totalBits / bpl;
+  const nibblesPerLane = bpl / 4;
+
+  // Fetch current lane values fresh from the register
+  let vals;
+  switch (view) {
+    case "epi8":  vals = JSON.parse(reg.get_epi8());  break;
+    case "epu8":  vals = JSON.parse(reg.get_epu8());  break;
+    case "epi16": vals = JSON.parse(reg.get_epi16()); break;
+    case "epu16": vals = JSON.parse(reg.get_epu16()); break;
+    case "epi32": vals = JSON.parse(reg.get_epi32()); break;
+    case "epu32": vals = JSON.parse(reg.get_epu32()); break;
+    case "epi64": vals = JSON.parse(reg.get_epi64()).map(String); break;
+    default: return; // "bits" view is not editable lane-by-lane
+  }
+
+  // Parse the new value, restoring the display on error
+  let newVal;
+  try {
+    const trimmed = newValueStr.trim();
+    if (view === "epi64") {
+      newVal = BigInt(trimmed);
+      if (newVal < -(1n << 63n) || newVal > (1n << 63n) - 1n) throw new Error("out of range");
+    } else {
+      newVal = parseInt(trimmed, 10);
+      if (isNaN(newVal)) throw new Error("not a number");
+    }
+  } catch (_) {
+    renderReg(key, reg);
+    return;
+  }
+
+  // Skip reconstruction if the value didn't actually change
+  if (String(newVal) === String(vals[laneIdx])) return;
+
+  vals[laneIdx] = newVal;
+
+  // Reconstruct the full register hex (big-endian: MSB lane first)
+  let hexStr = "";
+  for (let i = numLanes - 1; i >= 0; i--) {
+    let v = BigInt(vals[i]);
+    if (v < 0n) v += (1n << BigInt(bpl));
+    hexStr += v.toString(16).padStart(nibblesPerLane, "0");
+  }
+
+  try {
+    const newRegObj = REG_CLASS[regType].from_hex("0x" + hexStr);
+    if (key === "a") { regA = newRegObj; renderReg("a", regA); }
+    else              { regB = newRegObj; renderReg("b", regB); }
+  } catch (_) {
+    renderReg(key, reg);
+  }
 }
 
 // ── Register-type switching ───────────────────────────────────────────────────
@@ -354,6 +440,15 @@ document.getElementById("btn-clear-b").addEventListener("click", () => { regB = 
 // Operation buttons
 document.querySelectorAll(".op-btn[data-op]").forEach(btn => {
   btn.addEventListener("click", () => applyOp(btn.dataset.op));
+});
+
+// Edit-lanes toggle
+document.getElementById("lane-edit-toggle").addEventListener("click", function () {
+  laneEditMode = !laneEditMode;
+  this.classList.toggle("active", laneEditMode);
+  this.setAttribute("aria-pressed", laneEditMode ? "true" : "false");
+  renderReg("a", regA);
+  renderReg("b", regB);
 });
 
 // Seed demo values
