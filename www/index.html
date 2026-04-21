@@ -76,6 +76,28 @@
       color: var(--accent);
     }
 
+    /* ── Edit-lanes toggle ────────────────────────────────────────────────── */
+    .lane-edit-toggle {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 11px;
+      transition: all 0.15s;
+    }
+    .lane-edit-toggle.active {
+      background: var(--yellow);
+      color: var(--bg);
+      border-color: var(--yellow);
+    }
+    .lane-edit-toggle:hover:not(.active) {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
     main {
       flex: 1;
       display: grid;
@@ -193,6 +215,24 @@
     .lane-row:nth-child(even) { background: var(--surface); }
     .lane-idx  { color: var(--muted); text-align: right; font-size: 10px; }
     .lane-val  { color: var(--text); font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lane-val-input {
+      background: transparent;
+      border: none;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      font-family: inherit;
+      font-size: inherit;
+      font-weight: bold;
+      width: 100%;
+      padding: 0 1px;
+      outline: none;
+      min-width: 0;
+    }
+    .lane-val-input:focus {
+      border-bottom-color: var(--accent);
+      background: rgba(122,162,247,0.08);
+      border-radius: 2px;
+    }
     .lane-hex  { color: var(--muted); text-align: right; font-size: 10px; }
 
     /* ── Operations panel ─────────────────────────────────────────────────── */
@@ -371,6 +411,7 @@
   <header>
     <h1>Visual Intrinsics</h1>
     <span class="subtitle">Intel SIMD Intrinsics Guide Explorer</span>
+    <button class="lane-edit-toggle" id="lane-edit-toggle" title="Toggle editable lane values (A &amp; B panels)">✏️ Edit Lanes</button>
     <div class="regtype-sel">
       <button class="active" data-type="m128i">XMM · __m128i · 128-bit</button>
       <button data-type="m256i">YMM · __m256i · 256-bit</button>
@@ -765,6 +806,7 @@
   <footer>
     <span>Bits displayed MSB→LSB left-to-right. Lane index 0 = least-significant.</span>
     <span>For 256/512-bit: hadd, hsub, unpack, pack, shuffle_epi8, shuffle_epi32, alignr operate independently on each 128-bit lane (in-lane semantics).</span>
+    <span><a href="https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:underline dotted;">Intel Intrinsics Guide ↗</a></span>
   </footer>
 
   <script src="./bootstrap.js"></script>
