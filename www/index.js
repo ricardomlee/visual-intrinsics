@@ -470,10 +470,10 @@ document.getElementById("btn-save-hex").addEventListener("click", () => {
 // ── Multi-level operations navigation ────────────────────────────────────────
 (function initOpNav() {
   function loadState() {
-    try { return JSON.parse(localStorage.getItem("vi-opnav") || "{}"); } catch (e) { return {}; }
+    try { return JSON.parse(localStorage.getItem("vi-opnav") || "{}"); } catch (e) { console.warn("vi-opnav load:", e); return {}; }
   }
   function saveState(s) {
-    try { localStorage.setItem("vi-opnav", JSON.stringify(s)); } catch (e) {}
+    try { localStorage.setItem("vi-opnav", JSON.stringify(s)); } catch (e) { console.warn("vi-opnav save:", e); }
   }
 
   const state = loadState();
@@ -504,8 +504,8 @@ document.getElementById("btn-save-hex").addEventListener("click", () => {
   document.querySelectorAll(".op-group").forEach(group => {
     const grpId = group.dataset.grpId;
     // Default collapsed; open only if explicitly saved as open
-    const wasOpen = grpId && state[grpId] === false;
-    group.classList.toggle("collapsed", !wasOpen);
+    const shouldBeOpen = grpId && state[grpId] === false;
+    group.classList.toggle("collapsed", !shouldBeOpen);
 
     group.querySelector(".op-group-label").addEventListener("click", () => {
       const collapsed = group.classList.contains("collapsed");
