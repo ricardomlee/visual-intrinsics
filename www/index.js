@@ -457,34 +457,105 @@ regB = M128i.from_hex(DEMO_HEX.m128i.b);
 regR = M128i.new();
 renderAll();
 
-// ── Accordion ────────────────────────────────────────────────────────────────
-(function initAccordion() {
+// ── Save result hex to clipboard ──────────────────────────────────────────────
+document.getElementById("btn-save-hex").addEventListener("click", () => {
+  const hex = document.getElementById("result-hex").textContent;
+  const btn = document.getElementById("btn-save-hex");
+  navigator.clipboard.writeText(hex).then(() => {
+    btn.textContent = "✓";
+    setTimeout(() => { btn.textContent = "💾"; }, 1000);
+  }).catch(() => { alert("Copy failed — " + hex); });
+});
+
+// ── Multi-level operations navigation ────────────────────────────────────────
+(function initOpNav() {
   function loadState() {
-    try { return JSON.parse(localStorage.getItem("vi-accordion") || "{}"); } catch (e) { console.error("vi-accordion load:", e); return {}; }
+    try { return JSON.parse(localStorage.getItem("vi-opnav") || "{}"); } catch (e) { return {}; }
   }
   function saveState(s) {
-    try { localStorage.setItem("vi-accordion", JSON.stringify(s)); } catch (e) { console.error("vi-accordion save:", e); }
+    try { localStorage.setItem("vi-opnav", JSON.stringify(s)); } catch (e) {}
   }
 
   const state = loadState();
 
-  // Top-level category toggles
-  document.querySelectorAll(".op-cat").forEach(cat => {
-    const id = cat.id;
-    if (id && id in state) cat.classList.toggle("open", state[id]);
-    cat.querySelector(".op-cat-header").addEventListener("click", () => {
-      cat.classList.toggle("open");
-      if (id) { const s = loadState(); s[id] = cat.classList.contains("open"); saveState(s); }
-    });
+  // Level 1 — restore active category from localStorage
+  const level1 = document.getElementById("op-level1");
+  const activeCat = (state["_cat"] && document.getElementById("op-level2-" + state["_cat"]))
+    ? state["_cat"] : "utilities";
+  level1.querySelectorAll(".op-l1-btn").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.cat === activeCat);
+  });
+  document.querySelectorAll(".op-level2").forEach(p => {
+    p.hidden = (p.id !== "op-level2-" + activeCat);
   });
 
-  // Sub-group collapsible labels
+  // Level 1 — category click
+  level1.addEventListener("click", e => {
+    const btn = e.target.closest(".op-l1-btn");
+    if (!btn) return;
+    const cat = btn.dataset.cat;
+    level1.querySelectorAll(".op-l1-btn").forEach(b => b.classList.toggle("active", b === btn));
+    document.querySelectorAll(".op-level2").forEach(p => { p.hidden = true; });
+    document.getElementById("op-level2-" + cat).hidden = false;
+    const s = loadState(); s["_cat"] = cat; saveState(s);
+  });
+
+  // Level 2 — single-open sub-group accordion
   document.querySelectorAll(".op-group").forEach(group => {
     const grpId = group.dataset.grpId;
-    if (grpId && grpId in state) group.classList.toggle("collapsed", state[grpId]);
+    // Default collapsed; open only if explicitly saved as open
+    const wasOpen = grpId && state[grpId] === false;
+    group.classList.toggle("collapsed", !wasOpen);
+
     group.querySelector(".op-group-label").addEventListener("click", () => {
-      group.classList.toggle("collapsed");
-      if (grpId) { const s = loadState(); s[grpId] = group.classList.contains("collapsed"); saveState(s); }
+      const collapsed = group.classList.contains("collapsed");
+      if (collapsed) {
+        // Collapse all siblings in the same panel (single-open per category)
+        const panel = group.closest(".op-level2");
+        panel.querySelectorAll(".op-group").forEach(g => {
+          if (g !== group) {
+            g.classList.add("collapsed");
+            if (g.dataset.grpId) {
+              const s = loadState(); s[g.dataset.grpId] = true; saveState(s);
+            }
+          }
+        });
+        group.classList.remove("collapsed");
+      } else {
+        group.classList.add("collapsed");
+      }
+      if (grpId) {
+        const s = loadState(); s[grpId] = group.classList.contains("collapsed"); saveState(s);
+      }
     });
   });
+})();
+
+// ── WASM SIMD128 detection ────────────────────────────────────────────────────
+(function detectSimd() {
+  // Minimal WASM module containing a v128.const instruction (SIMD128 proposal).
+  // If the browser's WASM engine validates it, SIMD128 is supported and the VM
+  // will map vector ops to native instructions (SSE/AVX on x86, NEON on ARM).
+  const probe = new Uint8Array([
+    0x00,0x61,0x73,0x6d, 0x01,0x00,0x00,0x00, // magic + version
+    0x01,0x05,0x01,0x60, 0x00,0x01,0x7b,       // type section: () -> v128
+    0x03,0x02,0x01,0x00,                        // function section: fn 0
+    0x0a,0x16,0x01,0x14, 0x00,                  // code section: 1 fn, body=20B, 0 locals
+    0xfd,0x0c,                                  // v128.const
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,  // 16-byte immediate
+    0x0b                                        // end
+  ]);
+  let supported = false;
+  try { supported = WebAssembly.validate(probe); } catch (_) {}
+  const el = document.getElementById("simd-badge");
+  if (supported) {
+    el.textContent = "SIMD128 \u2713";
+    el.classList.add("simd-supported");
+    el.title = "WASM SIMD128 supported \u2014 browser maps vector ops to native instructions (SSE/AVX/NEON)";
+  } else {
+    el.textContent = "SIMD128 \u2717";
+    el.classList.add("simd-unsupported");
+    el.title = "WASM SIMD128 not supported \u2014 scalar fallback in use";
+  }
 })();
