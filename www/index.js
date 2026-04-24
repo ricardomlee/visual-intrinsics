@@ -531,31 +531,58 @@ document.getElementById("btn-save-hex").addEventListener("click", () => {
   });
 })();
 
-// ── WASM SIMD128 detection ────────────────────────────────────────────────────
+// ── CPU ISA detection via WASM feature probes ─────────────────────────────────
+// All computations always use software simulation; these probes only report
+// which vector ISA tiers the browser's WASM JIT would map to on this machine.
 (function detectSimd() {
-  // Minimal WASM module containing a v128.const instruction (SIMD128 proposal).
-  // If the browser's WASM engine validates it, SIMD128 is supported and the VM
-  // will map vector ops to native instructions (SSE/AVX on x86, NEON on ARM).
-  const probe = new Uint8Array([
+  // Probe 1 — WASM SIMD128 (v128.const, opcode 0x0c)
+  //   x86: requires SSE4.1 baseline  |  ARM: requires NEON
+  const probeSimd128 = new Uint8Array([
     0x00,0x61,0x73,0x6d, 0x01,0x00,0x00,0x00, // magic + version
-    0x01,0x05,0x01,0x60, 0x00,0x01,0x7b,       // type section: () -> v128
-    0x03,0x02,0x01,0x00,                        // function section: fn 0
-    0x0a,0x16,0x01,0x14, 0x00,                  // code section: 1 fn, body=20B, 0 locals
+    0x01,0x05,0x01,0x60, 0x00,0x01,0x7b,       // type: () -> v128
+    0x03,0x02,0x01,0x00,                        // func section
+    0x0a,0x16,0x01,0x14, 0x00,                  // code section header
     0xfd,0x0c,                                  // v128.const
     0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
-    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,  // 16-byte immediate
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,   // 16-byte immediate
     0x0b                                        // end
   ]);
-  let supported = false;
-  try { supported = WebAssembly.validate(probe); } catch (_) {}
+
+  // Probe 2 — WASM Relaxed SIMD (i8x16.relaxed_swizzle, opcode 0x100 = LEB128 0x80 0x02)
+  //   x86: SSSE3 pshufb / AVX2 vpshufb  |  ARM: ASIMD vtbl
+  //   Function type: (v128, v128) -> v128
+  const probeRelaxed = new Uint8Array([
+    0x00,0x61,0x73,0x6d, 0x01,0x00,0x00,0x00, // magic + version
+    0x01,0x07,0x01,0x60, 0x02,0x7b,0x7b,0x01,0x7b, // type: (v128,v128) -> v128
+    0x03,0x02,0x01,0x00,                        // func section
+    0x0a,0x0b,0x01,0x09, 0x00,                  // code section: 1 fn, 9-byte body, 0 locals
+    0x20,0x00, 0x20,0x01,                       // local.get 0, local.get 1
+    0xfd,0x80,0x02,                             // i8x16.relaxed_swizzle (opcode 0x100)
+    0x0b                                        // end
+  ]);
+
+  let simd128 = false, relaxed = false;
+  try { simd128 = WebAssembly.validate(probeSimd128); } catch (_) {}
+  try { relaxed = WebAssembly.validate(probeRelaxed); } catch (_) {}
+
   const el = document.getElementById("simd-badge");
-  if (supported) {
-    el.textContent = "SIMD128 \u2713";
+  const tip = [
+    "WASM SIMD128   : " + (simd128 ? "\u2713" : "\u2717") + "  \u2192  x86: SSE4.1+ | ARM: NEON",
+    "WASM Relaxed SIMD: " + (relaxed ? "\u2713" : "\u2717") + "  \u2192  x86: SSSE3/AVX2 | ARM: ASIMD",
+    "",
+    "All computations use software simulation.",
+    "Detection only \u2014 native intrinsics cannot run in WASM.",
+  ].join("\n");
+  el.title = tip;
+
+  if (simd128 && relaxed) {
+    el.textContent = "SIMD128 \u2713 \u00b7 Relaxed \u2713";
     el.classList.add("simd-supported");
-    el.title = "WASM SIMD128 supported \u2014 browser maps vector ops to native instructions (SSE/AVX/NEON)";
+  } else if (simd128) {
+    el.textContent = "SIMD128 \u2713 \u00b7 Relaxed \u2717";
+    el.classList.add("simd-partial");
   } else {
     el.textContent = "SIMD128 \u2717";
     el.classList.add("simd-unsupported");
-    el.title = "WASM SIMD128 not supported \u2014 scalar fallback in use";
   }
 })();
