@@ -457,14 +457,48 @@ regB = M128i.from_hex(DEMO_HEX.m128i.b);
 regR = M128i.new();
 renderAll();
 
+function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(text);
+  }
+
+  return new Promise((resolve, reject) => {
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.setAttribute("readonly", "");
+    textArea.style.position = "fixed";
+    textArea.style.top = "-9999px";
+    textArea.style.left = "-9999px";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+
+    try {
+      const copied = document.execCommand("copy");
+      document.body.removeChild(textArea);
+      if (!copied) {
+        reject(new Error("Clipboard copy is not supported in this browser."));
+        return;
+      }
+      resolve();
+    } catch (error) {
+      document.body.removeChild(textArea);
+      reject(error);
+    }
+  });
+}
+
 // ── Save result hex to clipboard ──────────────────────────────────────────────
 document.getElementById("btn-save-hex").addEventListener("click", () => {
   const hex = document.getElementById("result-hex").textContent;
   const btn = document.getElementById("btn-save-hex");
-  navigator.clipboard.writeText(hex).then(() => {
+  copyTextToClipboard(hex).then(() => {
     btn.textContent = "✓";
     setTimeout(() => { btn.textContent = "💾"; }, 1000);
-  }).catch(() => { alert("Copy failed — " + hex); });
+  }).catch((error) => {
+    const message = error && error.message ? error.message : "Unknown clipboard error.";
+    alert("Copy failed — " + message);
+  });
 });
 
 // ── Multi-level operations navigation ────────────────────────────────────────
